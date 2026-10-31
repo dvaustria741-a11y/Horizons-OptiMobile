@@ -13,6 +13,7 @@ impl Game<'_> {
             && let Err(error) = crate::display::apply(window, renderer)
         {
             crate::display::set_scale(crate::display::RenderScale::default());
+            crate::display::set_fixed(None);
             log::warn!("Android display scale: {error}");
         }
     }

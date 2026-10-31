@@ -45,8 +45,65 @@ impl RenderScale {
     }
 }
 
+/// Fixed render resolutions offered as presets (landscape width x height).
+pub const RESOLUTION_PRESETS: [[u32; 2]; 5] =
+    [[1920, 1080], [1600, 900], [1280, 720], [960, 540], [854, 480]];
+
+pub fn resolution_label(size: [u32; 2]) -> String {
+    format!("{} x {}", size[0], size[1])
+}
+
+/// Parse "1920x1080", "1920 x 1080", "1920*1080" or "1920\u{d7}1080".
+pub fn parse_resolution(text: &str) -> Result<[u32; 2], &'static str> {
+    const ERROR: &str = "Enter a resolution like 1920 x 1080";
+    let cleaned = text.trim().replace(['\u{d7}', '*', 'X'], "x");
+    let (w, h) = cleaned.split_once('x').ok_or(ERROR)?;
+    let w = w.trim().parse::<u32>().map_err(|_| ERROR)?;
+    let h = h.trim().parse::<u32>().map_err(|_| ERROR)?;
+    if !(320..=8192).contains(&w) || !(240..=8192).contains(&h) {
+        return Err("Width must be 320-8192 and height 240-8192");
+    }
+    Ok([w, h])
+}
+
+/// Frame size for the view: a fixed resolution fits inside the view without
+/// stretching or enlarging, otherwise the percentage scale applies. Portrait
+/// screens swap the requested width and height.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn target_size(scale: RenderScale, fixed: Option<[u32; 2]>, view: [u32; 2]) -> [u32; 2] {
+    let Some([mut fw, mut fh]) = fixed else {
+        return scale.buffer_size(view);
+    };
+    let [w, h] = view.map(|v| v.max(1));
+    if h > w {
+        std::mem::swap(&mut fw, &mut fh);
+    }
+    let minimum = (320.0 / w as f64).max(240.0 / h as f64).min(1.0);
+    let factor = (fw as f64 / w as f64)
+        .min(fh as f64 / h as f64)
+        .min(1.0)
+        .max(minimum);
+    [w, h].map(|v| (v as f64 * factor).round().max(1.0) as u32)
+}
+
 #[cfg(target_os = "android")]
 static REQUESTED_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+/// Packed width << 32 | height; zero means no fixed resolution.
+#[cfg(target_os = "android")]
+static REQUESTED_FIXED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(target_os = "android")]
+pub fn set_fixed(size: Option<[u32; 2]>) {
+    let packed = size.map_or(0, |[w, h]| (u64::from(w) << 32) | u64::from(h));
+    REQUESTED_FIXED.store(packed, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(target_os = "android")]
+fn requested_fixed() -> Option<[u32; 2]> {
+    let packed = REQUESTED_FIXED.load(std::sync::atomic::Ordering::Relaxed);
+    (packed != 0).then(|| [(packed >> 32) as u32, (packed & 0xffff_ffff) as u32])
+}
 
 #[cfg(target_os = "android")]
 pub fn set_scale(scale: RenderScale) {
@@ -65,7 +122,7 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
     let [_, _, width, height] =
         winit::platform::android::native_content_rect([physical.width, physical.height]);
     let view = [width, height];
-    let size = scale.buffer_size(view);
+    let size = target_size(scale, requested_fixed(), view);
     if size == [current.width, current.height] {
         winit::platform::android::set_native_input_scale([
             size[0] as f64 / view[0] as f64,
@@ -80,7 +137,8 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
 #[cfg(target_os = "android")]
 fn set_render_size(window: &winit::window::Window, size: [u32; 2]) -> Result<[u32; 2], String> {
     use winit::platform::android::WindowExtAndroid;
-    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100;
+    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100
+        && requested_fixed().is_none();
     let physical = window.outer_size();
     let rect = winit::platform::android::native_content_rect([physical.width, physical.height]);
     let target = if native && rect == [0, 0, physical.width, physical.height] {
@@ -143,6 +201,40 @@ mod tests {
         assert_eq!(RenderScale::new(25).buffer_size([480, 854]), [320, 569]);
         assert_eq!(RenderScale::new(25).buffer_size([240, 320]), [240, 320]);
         assert_eq!(RenderScale::new(25).buffer_size([0, 0]), [1, 1]);
+    }
+
+    #[test]
+    fn fixed_resolution_fits_without_stretching_or_enlarging() {
+        assert_eq!(
+            target_size(RenderScale::default(), Some([1920, 1080]), [2400, 1350]),
+            [1920, 1080]
+        );
+        assert_eq!(
+            target_size(RenderScale::default(), Some([1920, 1080]), [2772, 1280]),
+            [1920, 887]
+        );
+        assert_eq!(
+            target_size(RenderScale::default(), Some([1920, 1080]), [1280, 720]),
+            [1280, 720]
+        );
+        assert_eq!(
+            target_size(RenderScale::default(), Some([1920, 1080]), [1080, 1920]),
+            [1080, 1920]
+        );
+        assert_eq!(
+            target_size(RenderScale::new(50), None, [2772, 1280]),
+            [1386, 640]
+        );
+    }
+
+    #[test]
+    fn resolution_text_is_parsed_and_bounded() {
+        assert_eq!(parse_resolution("1920x1080"), Ok([1920, 1080]));
+        assert_eq!(parse_resolution(" 1280 X 720 "), Ok([1280, 720]));
+        assert_eq!(parse_resolution("1600*900"), Ok([1600, 900]));
+        assert!(parse_resolution("1920").is_err());
+        assert!(parse_resolution("10x10").is_err());
+        assert!(parse_resolution("9000x9000").is_err());
     }
 
     #[test]

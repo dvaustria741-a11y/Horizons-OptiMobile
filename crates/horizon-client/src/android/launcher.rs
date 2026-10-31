@@ -159,6 +159,7 @@ impl Launcher {
         crate::platform::set_orientation(self.catalog.config.orientation);
         self.configure_screen();
         crate::display::set_scale(self.catalog.config.render_scale);
+        crate::display::set_fixed(self.catalog.config.fixed_resolution);
         horizon_client::android_runtime::configure_gpu(false);
         if let Some(renderer) = &mut self.renderer {
             if let Some(size) = crate::display::prepare(self.window.as_ref().unwrap())? {
@@ -268,6 +269,7 @@ impl Launcher {
                     serde_json::json!({
                         "renderer": self.catalog.config.renderer.label(),
                         "resolution_percent": self.catalog.config.render_scale.percent(),
+                        "fixed_resolution": self.catalog.config.fixed_resolution,
                         "source_commit": option_env!("HORIZON_ANDROID_BUILD_COMMIT"),
                         "source_dirty": option_env!("HORIZON_ANDROID_BUILD_DIRTY"),
                     }),
@@ -464,6 +466,7 @@ impl ApplicationHandler for Launcher {
             && let Err(error) = crate::display::apply(window, renderer)
         {
             crate::display::set_scale(crate::display::RenderScale::default());
+            crate::display::set_fixed(None);
             self.fail(error);
         }
         if let Some(result) = self.worker.as_ref().and_then(|w| w.try_recv().ok()) {

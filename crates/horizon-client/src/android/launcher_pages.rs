@@ -40,6 +40,7 @@ pub(super) enum Action {
     Renderer,
     RenderScale,
     ChooseRenderScale(crate::display::RenderScale),
+    ChooseResolution([u32; 2]),
     Orientation,
     InputHost,
     ChooseInputHost(crate::catalog::InputHost),
@@ -788,6 +789,10 @@ impl Launcher {
                     "Client resolution",
                     if self.catalog.editing == Some("render_scale") {
                         self.catalog.render_scale_text.clone()
+                    } else if self.catalog.editing == Some("resolution") {
+                        self.catalog.resolution_text.clone()
+                    } else if let Some(size) = c.fixed_resolution {
+                        crate::display::resolution_label(size)
                     } else {
                         format!("{}%", c.render_scale.percent())
                     },
@@ -1038,11 +1043,13 @@ impl Launcher {
                 "name" => self.catalog.config.name.clone(),
                 "server" => self.catalog.config.server.clone(),
                 "render_scale" => self.catalog.render_scale_text.clone(),
+                "resolution" => self.catalog.resolution_text.clone(),
                 _ => format!("Search: {}", self.catalog.query),
             };
             for ([x, y, w, _], action) in &self.targets {
                 if *action == Action::Field(name)
-                    || (name == "render_scale" && *action == Action::RenderScale)
+                    || (matches!(name, "render_scale" | "resolution")
+                        && *action == Action::RenderScale)
                 {
                     let text = ui.fit_text(Face::Medium, 16.0, &value, w - 24.0);
                     let caret_x = x + 12.0 + ui.measure(Face::Medium, 16.0, &text);
@@ -1306,11 +1313,20 @@ impl Launcher {
                         self.catalog.config.render_scale.percent().to_string();
                     self.chooser = None;
                 }
+                if name == "resolution" {
+                    self.catalog.resolution_text = self
+                        .catalog
+                        .config
+                        .fixed_resolution
+                        .map_or_else(|| "1920 x 1080".into(), crate::display::resolution_label);
+                    self.chooser = None;
+                }
                 self.catalog.editing = Some(name);
                 let initial = match name {
                     "name" => &self.catalog.config.name,
                     "server" => &self.catalog.config.server,
                     "render_scale" => &self.catalog.render_scale_text,
+                    "resolution" => &self.catalog.resolution_text,
                     "client_id" => &self.catalog.config.microsoft_client_id,
                     _ => &self.catalog.query,
                 };
@@ -1330,9 +1346,17 @@ impl Launcher {
             Some(Action::RenderScale) => self.open_chooser(chooser::Kind::RenderScale),
             Some(Action::ChooseRenderScale(scale)) => {
                 self.catalog.config.render_scale = scale;
+                self.catalog.config.fixed_resolution = None;
                 self.catalog.config.save(&self.home)?;
                 self.chooser = None;
                 crate::display::set_scale(scale);
+                crate::display::set_fixed(None);
+            }
+            Some(Action::ChooseResolution(size)) => {
+                self.catalog.config.fixed_resolution = Some(size);
+                self.catalog.config.save(&self.home)?;
+                self.chooser = None;
+                crate::display::set_fixed(Some(size));
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),

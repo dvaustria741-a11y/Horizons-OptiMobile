@@ -89,7 +89,7 @@ impl Launcher {
                                 "Lower resolution for the whole picture".into()
                             },
                             Action::ChooseRenderScale(crate::display::RenderScale::new(percent)),
-                            c.render_scale.percent() == percent,
+                            c.fixed_resolution.is_none() && c.render_scale.percent() == percent,
                         )
                     })
                     .collect();
@@ -99,9 +99,25 @@ impl Launcher {
                     Action::Field("render_scale"),
                     false,
                 ));
+                for size in crate::display::RESOLUTION_PRESETS {
+                    choices.push((
+                        crate::display::resolution_label(size),
+                        "Fixed size. Fits your screen without stretching; never enlarged".into(),
+                        Action::ChooseResolution(size),
+                        c.fixed_resolution == Some(size),
+                    ));
+                }
+                choices.push((
+                    "Custom resolution...".into(),
+                    "Enter width x height, like 1920 x 1080".into(),
+                    Action::Field("resolution"),
+                    c.fixed_resolution.is_some_and(|s| {
+                        !crate::display::RESOLUTION_PRESETS.contains(&s)
+                    }),
+                ));
                 (
                     "Client resolution",
-                    "Small screens retain a usable menu size.",
+                    "Percent or a fixed size. For an exact 1920 x 1080, also set Aspect ratio to 16:9.",
                     choices,
                 )
             }
