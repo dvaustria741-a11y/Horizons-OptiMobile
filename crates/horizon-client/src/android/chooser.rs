@@ -108,7 +108,7 @@ impl Launcher {
                 for size in crate::display::RESOLUTION_PRESETS {
                     choices.push((
                         crate::display::resolution_label(size),
-                        "Screen size: UI sized for it. The picture stays sharp".into(),
+                        "Screen size, same scale as the percent list. Stays sharp".into(),
                         Action::ChooseResolution(size),
                         c.fixed_resolution == Some(size),
                     ));
@@ -123,7 +123,7 @@ impl Launcher {
                 ));
                 (
                     "Client resolution",
-                    "Percent sets sharpness only (lower is blurrier and faster). A resolution sets the screen size and does not blur.",
+                    "Percent sets sharpness only (lower is blurrier and faster). A resolution sets the screen size and does not blur: 854 x 480 matches 25%, 1920 x 1080 is the full screen.",
                     choices,
                 )
             }

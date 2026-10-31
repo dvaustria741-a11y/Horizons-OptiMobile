@@ -66,20 +66,20 @@ pub fn parse_resolution(text: &str) -> Result<[u32; 2], &'static str> {
     Ok([w, h])
 }
 
-/// The fixed resolution fitted inside the view without stretching or
-/// enlarging. Portrait screens swap width and height.
+/// Screen size the UI is laid out for, from a chosen resolution. It follows the
+/// same scale as the percentage list: 854 x 480 is the 25% screen, 1920 x 1080
+/// (and anything larger) is the whole screen, and sizes between grow smoothly.
+/// The aspect ratio of the view is kept, and the 320 x 240 GUI minimum holds.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub fn fit_resolution(fixed: Option<[u32; 2]>, view: [u32; 2]) -> Option<[u32; 2]> {
-    let [mut fw, mut fh] = fixed?;
+    const SMALL: f64 = 854.0;
+    const LARGE: f64 = 1920.0;
+    let [fw, fh] = fixed?;
     let [w, h] = view.map(|v| v.max(1));
-    if h > w {
-        std::mem::swap(&mut fw, &mut fh);
-    }
     let minimum = (320.0 / w as f64).max(240.0 / h as f64).min(1.0);
-    let factor = (fw as f64 / w as f64)
-        .min(fh as f64 / h as f64)
-        .min(1.0)
-        .max(minimum);
+    let long = f64::from(fw.max(fh));
+    let share = 0.25 + 0.75 * (long - SMALL) / (LARGE - SMALL);
+    let factor = share.clamp(minimum, 1.0);
     Some([w, h].map(|v| (v as f64 * factor).round().max(1.0) as u32))
 }
 
@@ -205,12 +205,21 @@ mod tests {
     }
 
     #[test]
-    fn fit_resolution_fits_without_stretching_or_enlarging() {
-        assert_eq!(fit_resolution(None, [2772, 1280]), None);
-        assert_eq!(fit_resolution(Some([1920, 1080]), [2400, 1350]), Some([1920, 1080]));
-        assert_eq!(fit_resolution(Some([1920, 1080]), [2772, 1280]), Some([1920, 887]));
-        assert_eq!(fit_resolution(Some([1920, 1080]), [1280, 720]), Some([1280, 720]));
-        assert_eq!(fit_resolution(Some([1920, 1080]), [1080, 1920]), Some([1080, 1920]));
+    fn resolutions_follow_the_percent_scale() {
+        let view = [2400, 1080];
+        assert_eq!(fit_resolution(None, view), None);
+        // 854 x 480 is exactly the 25% screen.
+        assert_eq!(
+            fit_resolution(Some([854, 480]), view),
+            Some(RenderScale::new(25).buffer_size(view))
+        );
+        assert_eq!(fit_resolution(Some([1920, 1080]), view), Some(view));
+        assert_eq!(fit_resolution(Some([3840, 2160]), view), Some(view));
+        assert_eq!(fit_resolution(Some([1280, 720]), view), Some([1319, 594]));
+        // Portrait screens use the same share, held to the 320 x 240 minimum.
+        assert_eq!(fit_resolution(Some([854, 480]), [1080, 2400]), Some([320, 711]));
+        // Tiny requests stop at the GUI minimum.
+        assert_eq!(fit_resolution(Some([320, 240]), view), Some([533, 240]));
     }
 
     #[test]
