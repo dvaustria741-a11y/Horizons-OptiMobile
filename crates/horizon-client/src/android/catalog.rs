@@ -131,10 +131,11 @@ impl Config {
         std::fs::rename(part, home.join("android-launcher.json")).map_err(|e| e.to_string())
     }
     pub fn profile_home(&self, home: &Path) -> PathBuf {
+        let root = crate::content_root::content_root(home);
         if self.profile == 0 {
-            home.into()
+            root
         } else {
-            home.join("profiles")
+            root.join("profiles")
                 .join(format!("profile-{}", self.profile))
         }
     }

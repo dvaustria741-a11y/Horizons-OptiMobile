@@ -47,6 +47,7 @@ struct Document {
     reports: bool,
 }
 fn resolve(home: &Path, id: &str) -> io::Result<Document> {
+    let home = &crate::content_root::content_root(home);
     let mut parts = id.split('/');
     let first = parts.next().ok_or_else(invalid)?;
     let (base, label, reports) = if first == "reports" {

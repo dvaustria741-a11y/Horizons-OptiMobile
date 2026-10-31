@@ -13,7 +13,7 @@ fn tail(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(out)
 }
 pub fn collect(home: &Path) {
-    let dir = home.join("performance");
+    let dir = crate::content_root::content_root(home).join("performance");
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -128,7 +128,7 @@ pub fn collect(home: &Path) {
 }
 pub fn install(home: &Path) {
     collect(home);
-    let dir = home.join("performance");
+    let dir = crate::content_root::content_root(home).join("performance");
     let old = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = std::fs::write(

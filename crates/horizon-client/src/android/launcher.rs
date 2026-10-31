@@ -236,6 +236,7 @@ impl Launcher {
             }
             self.catalog.config.keypad_controls = false;
             let game_home = self.catalog.config.game_home(&self.home);
+            let sessions = self.home.join("sessions");
             if !self.session_ready && crate::account::Accounts::load().selected().is_some() {
                 let id = self.catalog.config.microsoft_client_id.clone();
                 let (sender, receiver) = mpsc::channel();
@@ -246,7 +247,7 @@ impl Launcher {
                         login::Login::session(&id)?
                             .map(|(a, s)| {
                                 crate::account::write_session_file(
-                                    &game_home.join("sessions"),
+                                    &sessions,
                                     &a,
                                     &s,
                                 )
@@ -259,6 +260,8 @@ impl Launcher {
             }
             self.session_ready = false;
             std::fs::create_dir_all(&game_home)?;
+            std::fs::create_dir_all(self.home.join(".horizon-cache"))?;
+            horizon_client::mod_content::set_cache_root(self.home.join(".horizon-cache"));
             std::env::set_current_dir(game_home)?;
             self.audio = None;
             self.error = None;

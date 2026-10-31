@@ -27,6 +27,8 @@ mod device_preferences;
 mod device_runtime;
 #[path = "android/display.rs"]
 mod display;
+#[path = "android/content_root.rs"]
+mod content_root;
 #[path = "android/document_bridge.rs"]
 mod document_bridge;
 #[path = "android/document_provider.rs"]
@@ -223,6 +225,7 @@ fn android_main(app: AndroidApp) {
         return;
     };
     backend::initialize(home.clone());
+    content_root::publish(&home, app.external_data_path().as_deref());
     if let Ok(vm) = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) } {
         secure_store::initialize(vm);
     }

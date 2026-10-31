@@ -1588,6 +1588,17 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<Vec<String>
 /// The root is built once and kept: later starts with the same build, base
 /// and mod files reuse it. With ATM10's carried mods a build takes about
 /// 25 s and peaks above 3 GB, more than everything the game keeps.
+static CACHE_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+/// Where derived caches live; unset, they sit in the game folder (`.horizon-cache`).
+pub fn set_cache_root(path: PathBuf) {
+    let _ = CACHE_ROOT.set(path);
+}
+pub fn cache_root() -> PathBuf {
+    CACHE_ROOT
+        .get()
+        .cloned()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join(".horizon-cache"))
+}
 pub fn resource_root(base: &Path, mods: &[ContentMod], cache: &Path) -> Result<PathBuf> {
     if mods.iter().all(|m| m.content.is_empty()) {
         return Ok(base.to_owned());

@@ -21,9 +21,7 @@ use std::{
 
 /// Where overlay roots are built (beside options.txt).
 pub fn cache_dir() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_default()
-        .join(".horizon-cache/resourcepacks")
+    horizon_client::mod_content::cache_root().join("resourcepacks")
 }
 pub fn packs_dir() -> PathBuf {
     std::env::current_dir()

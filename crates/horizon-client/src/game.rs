@@ -17945,7 +17945,7 @@ pub(crate) fn android_game() -> Result<Box<dyn ApplicationHandler>> {
     let settings = Settings::load(&std::env::current_dir()?.join("options.txt"));
     let root = options.resources.clone();
     horizon_threads::put_helpers_behind();
-    Behaviours::set_cache_dir(std::env::current_dir()?.join(".horizon-cache"));
+    Behaviours::set_cache_dir(horizon_client::mod_content::cache_root());
     Ok(Box::new(loading_app(
         options,
         settings,
@@ -18055,7 +18055,7 @@ pub fn run() -> Result<()> {
     }
     // Snapshots of derived tables live in the game folder, never beside the
     // shared resources.
-    Behaviours::set_cache_dir(std::env::current_dir()?.join(".horizon-cache"));
+    Behaviours::set_cache_dir(horizon_client::mod_content::cache_root());
     if !synchronous_startup(&options) {
         return run_loading(options, early_settings, vanilla_root, None, started);
     }
