@@ -45,62 +45,8 @@ impl RenderScale {
     }
 }
 
-/// Fixed render resolutions offered as presets (landscape width x height).
-pub const RESOLUTION_PRESETS: [[u32; 2]; 5] =
-    [[1920, 1080], [1600, 900], [1280, 720], [960, 540], [854, 480]];
-
-pub fn resolution_label(size: [u32; 2]) -> String {
-    format!("{} x {}", size[0], size[1])
-}
-
-/// Parse "1920x1080", "1920 x 1080", "1920*1080" or "1920\u{d7}1080".
-pub fn parse_resolution(text: &str) -> Result<[u32; 2], &'static str> {
-    const ERROR: &str = "Enter a resolution like 1920 x 1080";
-    let cleaned = text.trim().replace(['\u{d7}', '*', 'X'], "x");
-    let (w, h) = cleaned.split_once('x').ok_or(ERROR)?;
-    let w = w.trim().parse::<u32>().map_err(|_| ERROR)?;
-    let h = h.trim().parse::<u32>().map_err(|_| ERROR)?;
-    if !(320..=8192).contains(&w) || !(240..=8192).contains(&h) {
-        return Err("Width must be 320-8192 and height 240-8192");
-    }
-    Ok([w, h])
-}
-
-/// Screen size the UI is laid out for, from a chosen resolution. It follows the
-/// same scale as the percentage list: 854 x 480 is the 25% screen, 1920 x 1080
-/// (and anything larger) is the whole screen, and sizes between grow smoothly.
-/// The aspect ratio of the view is kept, and the 320 x 240 GUI minimum holds.
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-pub fn fit_resolution(fixed: Option<[u32; 2]>, view: [u32; 2]) -> Option<[u32; 2]> {
-    const SMALL: f64 = 854.0;
-    const LARGE: f64 = 1920.0;
-    let [fw, fh] = fixed?;
-    let [w, h] = view.map(|v| v.max(1));
-    let minimum = (320.0 / w as f64).max(240.0 / h as f64).min(1.0);
-    let long = f64::from(fw.max(fh));
-    let share = 0.25 + 0.75 * (long - SMALL) / (LARGE - SMALL);
-    let factor = share.clamp(minimum, 1.0);
-    Some([w, h].map(|v| (v as f64 * factor).round().max(1.0) as u32))
-}
-
 #[cfg(target_os = "android")]
 static REQUESTED_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
-
-/// Packed width << 32 | height; zero means no fixed resolution.
-#[cfg(target_os = "android")]
-static REQUESTED_FIXED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-#[cfg(target_os = "android")]
-pub fn set_fixed(size: Option<[u32; 2]>) {
-    let packed = size.map_or(0, |[w, h]| (u64::from(w) << 32) | u64::from(h));
-    REQUESTED_FIXED.store(packed, std::sync::atomic::Ordering::Relaxed);
-}
-
-#[cfg(target_os = "android")]
-fn requested_fixed() -> Option<[u32; 2]> {
-    let packed = REQUESTED_FIXED.load(std::sync::atomic::Ordering::Relaxed);
-    (packed != 0).then(|| [(packed >> 32) as u32, (packed & 0xffff_ffff) as u32])
-}
 
 #[cfg(target_os = "android")]
 pub fn set_scale(scale: RenderScale) {
@@ -119,10 +65,6 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
     let [_, _, width, height] =
         winit::platform::android::native_content_rect([physical.width, physical.height]);
     let view = [width, height];
-    // The percentage sets only how many pixels the frame has (sharpness). The
-    // screen size the UI is laid out for follows the resolution alone.
-    let layout = fit_resolution(requested_fixed(), view).unwrap_or(view);
-    horizon_client::hud::set_layout_reference(Some(layout));
     let size = scale.buffer_size(view);
     if size == [current.width, current.height] {
         winit::platform::android::set_native_input_scale([
@@ -149,7 +91,6 @@ fn set_render_size(window: &winit::window::Window, size: [u32; 2]) -> Result<[u3
     let actual = window
         .set_render_size(winit::dpi::PhysicalSize::new(target[0], target[1]))
         .map_err(|e| e.to_string())?;
-    log::info!("Android frame size {}x{}", actual.width, actual.height);
     Ok([actual.width, actual.height])
 }
 
@@ -202,34 +143,6 @@ mod tests {
         assert_eq!(RenderScale::new(25).buffer_size([480, 854]), [320, 569]);
         assert_eq!(RenderScale::new(25).buffer_size([240, 320]), [240, 320]);
         assert_eq!(RenderScale::new(25).buffer_size([0, 0]), [1, 1]);
-    }
-
-    #[test]
-    fn resolutions_follow_the_percent_scale() {
-        let view = [2400, 1080];
-        assert_eq!(fit_resolution(None, view), None);
-        // 854 x 480 is exactly the 25% screen.
-        assert_eq!(
-            fit_resolution(Some([854, 480]), view),
-            Some(RenderScale::new(25).buffer_size(view))
-        );
-        assert_eq!(fit_resolution(Some([1920, 1080]), view), Some(view));
-        assert_eq!(fit_resolution(Some([3840, 2160]), view), Some(view));
-        assert_eq!(fit_resolution(Some([1280, 720]), view), Some([1319, 594]));
-        // Portrait screens use the same share, held to the 320 x 240 minimum.
-        assert_eq!(fit_resolution(Some([854, 480]), [1080, 2400]), Some([320, 711]));
-        // Tiny requests stop at the GUI minimum.
-        assert_eq!(fit_resolution(Some([320, 240]), view), Some([533, 240]));
-    }
-
-    #[test]
-    fn resolution_text_is_parsed_and_bounded() {
-        assert_eq!(parse_resolution("1920x1080"), Ok([1920, 1080]));
-        assert_eq!(parse_resolution(" 1280 X 720 "), Ok([1280, 720]));
-        assert_eq!(parse_resolution("1600*900"), Ok([1600, 900]));
-        assert!(parse_resolution("1920").is_err());
-        assert!(parse_resolution("10x10").is_err());
-        assert!(parse_resolution("9000x9000").is_err());
     }
 
     #[test]

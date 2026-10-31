@@ -7,11 +7,11 @@
   "compared_source_files": 3147,
   "modified_existing_files": 41,
   "branch": "android",
-  "merged_upstream_commit": "f4a81d27e",
-  "merged_upstream_commits": 5753,
+  "merged_upstream_commit": "c3905131b",
+  "merged_upstream_commits": 6470,
   "last_reviewed_date": "2026-10-31",
-  "last_update_commits": 56,
-  "latest_fetched_commit": "f4a81d27e",
-  "review": "Reviewed stable main through f4a81d27e: bounded region-writer helpers, far-terrain cache/meshing/fading, sculk portal batching, remote sprint-hit slowdown, vanilla structure/jigsaw/test block interfaces and desktop video options. Preserved Android keypad and shared presentation bounds; deployment workflows stay inactive. Authentication recovery is covered by isolated mock tests, not a live Microsoft login. ARM64 strict Clippy and ARMv7 cargo check passed after integration. Screen preference tests passed; the final immersive status/navigation split has not been device-tested.",
+  "last_update_commits": 717,
+  "latest_fetched_commit": "c3905131b",
+  "review": "Merged stable main through c3905131b. Preserved Android mod ticking and native queue reset from the prior merge; reviewed teleport/jump replay fixes and jittered vanilla-client tests. Reviewed and merged PR #39 with original author history. Fixed synchronous CPAL discovery, nonblocking diagnostics, integrated-server owner persistence and GLES shader composition. Added opaque Android presentation and interrupted-Vulkan startup recovery. Upstream deployment workflows remain inactive. Native .hnmod on-device compilation remains unsupported. Targeted source/GPU tests pass; owner-device FPS, audio hotplug, Mali composition and Unisoc recovery verification remain release-candidate checks.",
   "pending_review_commits": 0
 }

@@ -25,10 +25,10 @@ mod catalog;
 mod device_preferences;
 #[path = "android/device_runtime.rs"]
 mod device_runtime;
+#[path = "android/diagnostics.rs"]
+mod diagnostics;
 #[path = "android/display.rs"]
 mod display;
-#[path = "android/content_root.rs"]
-mod content_root;
 #[path = "android/document_bridge.rs"]
 mod document_bridge;
 #[path = "android/document_provider.rs"]
@@ -64,9 +64,9 @@ mod skins;
 // The shared account protocol needs only the launcher's version and data path.
 mod backend {
     pub const VERSION: &str = if crate::PUBLIC_BUILD {
-        "0.7.5"
+        "0.7.6"
     } else {
-        "0.7.5-dev"
+        "0.7.6-dev"
     };
     static HOME: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     pub fn initialize(home: std::path::PathBuf) {
@@ -205,7 +205,31 @@ fn init_logging() {
                 .build(),
         );
     }
-    android_logger::init_once(logger);
+    struct LocalLogger(android_logger::AndroidLogger);
+    impl log::Log for LocalLogger {
+        fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+            log::Log::enabled(&self.0, metadata)
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            if !self.enabled(record.metadata()) {
+                return;
+            }
+            log::Log::log(&self.0, record);
+            diagnostics::log_line(record.level(), record.target(), &record.args().to_string());
+        }
+        fn flush(&self) {
+            diagnostics::request_flush();
+        }
+    }
+    static LOGGER: std::sync::OnceLock<LocalLogger> = std::sync::OnceLock::new();
+    let logger = LOGGER.get_or_init(|| LocalLogger(android_logger::AndroidLogger::new(logger)));
+    if log::set_logger(logger).is_ok() {
+        log::set_max_level(if trace_gles {
+            log::LevelFilter::Trace
+        } else {
+            log::LevelFilter::Info
+        });
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -225,7 +249,9 @@ fn android_main(app: AndroidApp) {
         return;
     };
     backend::initialize(home.clone());
-    content_root::publish(&home, app.external_data_path().as_deref());
+    if let Err(error) = diagnostics::initialize(&home, serde_json::json!({})) {
+        log::error!("Cannot initialize local diagnostics: {error}");
+    }
     if let Ok(vm) = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) } {
         secure_store::initialize(vm);
     }
@@ -276,6 +302,7 @@ fn android_main(app: AndroidApp) {
         .and_then(|events| events.run_app(&mut launcher).map_err(Into::into));
     if let Err(error) = result {
         log::error!("Horizon: {error}");
+        diagnostics::record_error(&error.to_string());
         horizon_client::crash::report_error(&home, "client", &*error);
         let _ = std::fs::write(home.join("android-error.txt"), error.to_string());
     }
@@ -283,6 +310,7 @@ fn android_main(app: AndroidApp) {
     // this process cached after Quit, making the next launch fail. run_app's
     // exiting callback has completed the world save before we get here.
     drop(launcher);
+    diagnostics::finish();
     platform::finish();
     APP.with(|slot| *slot.borrow_mut() = None);
     std::process::exit(0);

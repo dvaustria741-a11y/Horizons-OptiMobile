@@ -873,37 +873,6 @@ fn clip_polygon(poly: &[HudVertex], axis: usize, limit: f32, keep_below: bool) -
 }
 /// The GUI Scale option (0 = auto).
 pub static GUI_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-/// Screen size the UI is laid out for, packed width << 32 | height (0 = the
-/// frame's own size). The frame's pixel count only sets sharpness; this sets
-/// how large the UI and everything laid out in GUI pixels looks.
-pub static LAYOUT_REFERENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub fn set_layout_reference(size: Option<[u32; 2]>) {
-    let packed = size.map_or(0, |[w, h]| (u64::from(w) << 32) | u64::from(h));
-    LAYOUT_REFERENCE.store(packed, std::sync::atomic::Ordering::Relaxed);
-}
-/// Window.calculateScale for `window`, or, with a `reference` screen, the
-/// scale that lays the UI out as it would be on that screen while drawing
-/// into `window`. Never leaves fewer than 320x240 GUI pixels.
-pub fn gui_scale_for(window: [u32; 2], limit: u32, reference: Option<[u32; 2]>) -> f32 {
-    let auto = |size: [u32; 2]| {
-        let mut scale = 1;
-        while (limit == 0 || scale < limit)
-            && size[0] / (scale + 1) >= 320
-            && size[1] / (scale + 1) >= 240
-        {
-            scale += 1;
-        }
-        scale
-    };
-    match reference {
-        Some(r) if r[0] > 0 && r[1] > 0 && r != window => {
-            let wanted = f64::from(auto(r)) * f64::from(window[0]) / f64::from(r[0]);
-            let room = (f64::from(window[0]) / 320.0).min(f64::from(window[1]) / 240.0);
-            wanted.min(room).max(0.1) as f32
-        }
-        _ => auto(window) as f32,
-    }
-}
 /// Layout only passive information inside a safe rectangle. The main HUD,
 /// touch controls, menu hit tests and world projection keep their full surface.
 pub fn inset_overlay(batch: &mut HudBatch, margins: [f32; 2], draw: impl FnOnce(&mut HudBatch)) {
@@ -978,15 +947,18 @@ impl HudBatch {
     /// capped by the GUI Scale option (0 = auto).
     pub fn new(window: [u32; 2]) -> Self {
         let limit = GUI_SCALE.load(std::sync::atomic::Ordering::Relaxed);
-        let packed = LAYOUT_REFERENCE.load(std::sync::atomic::Ordering::Relaxed);
-        let reference =
-            (packed != 0).then(|| [(packed >> 32) as u32, (packed & 0xffff_ffff) as u32]);
-        let scale = gui_scale_for(window, limit, reference);
+        let mut scale = 1;
+        while (limit == 0 || scale < limit)
+            && window[0] / (scale + 1) >= 320
+            && window[1] / (scale + 1) >= 240
+        {
+            scale += 1;
+        }
         Self {
             vertices: Vec::new(),
-            scale,
-            width: (window[0] as f32 / scale).ceil(),
-            height: (window[1] as f32 / scale).ceil(),
+            scale: scale as f32,
+            width: (window[0] as f32 / scale as f32).ceil(),
+            height: (window[1] as f32 / scale as f32).ceil(),
             patches: Vec::new(),
             blends: Vec::new(),
             end_portal: EndPortalFill::default(),
@@ -2119,29 +2091,6 @@ impl HudRenderer {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn percent_changes_sharpness_not_ui_size() {
-        let view = [2772u32, 1280];
-        assert_eq!(gui_scale_for(view, 0, None), 5.0);
-        assert_eq!(gui_scale_for(view, 0, Some(view)), 5.0);
-        // 50% frame, same screen: the UI covers the same share of the picture.
-        let half = gui_scale_for([1386, 640], 0, Some(view));
-        assert_eq!(half, 2.5);
-        assert_eq!((1386.0 / half).ceil(), (2772.0f32 / 5.0).ceil());
-        // 25% frame, same screen.
-        assert_eq!(gui_scale_for([693, 320], 0, Some(view)), 1.25);
-    }
-
-    #[test]
-    fn reference_screen_sets_the_ui_size() {
-        let view = [2772u32, 1280];
-        // Sharp frame, 854 x 394 screen: UI is three times larger than at 854.
-        let scale = gui_scale_for(view, 0, Some([854, 394]));
-        assert!((scale - 3.246).abs() < 0.01);
-        // Never fewer than 320x240 GUI pixels.
-        assert!(gui_scale_for([693, 320], 0, Some([320, 240])) <= 1.34);
-    }
-
     use super::*;
     #[test]
     fn inset_only_moves_the_information_overlay_not_controls_or_viewport() {

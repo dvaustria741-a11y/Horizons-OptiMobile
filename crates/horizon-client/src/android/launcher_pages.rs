@@ -27,6 +27,7 @@ pub(super) enum Action {
     Logs,
     RecordPerformance,
     ExportPerformance,
+    ExportDiagnostics,
     Account,
     SignIn,
     DeviceSignIn,
@@ -40,7 +41,6 @@ pub(super) enum Action {
     Renderer,
     RenderScale,
     ChooseRenderScale(crate::display::RenderScale),
-    ChooseResolution([u32; 2]),
     Orientation,
     InputHost,
     ChooseInputHost(crate::catalog::InputHost),
@@ -777,11 +777,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (14.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (15.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (14.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (15.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -789,14 +789,6 @@ impl Launcher {
                     "Client resolution",
                     if self.catalog.editing == Some("render_scale") {
                         self.catalog.render_scale_text.clone()
-                    } else if self.catalog.editing == Some("resolution") {
-                        self.catalog.resolution_text.clone()
-                    } else if let Some(size) = c.fixed_resolution {
-                        format!(
-                            "{}% / {}",
-                            c.render_scale.percent(),
-                            crate::display::resolution_label(size)
-                        )
                     } else {
                         format!("{}%", c.render_scale.percent())
                     },
@@ -842,7 +834,7 @@ impl Launcher {
                 (
                     "GPU profiling",
                     if c.device.gpu_profile {
-                        "On / diagnostic recording"
+                        "On / included in report"
                     } else {
                         "Off"
                     }
@@ -860,8 +852,13 @@ impl Launcher {
                     Action::RecordPerformance,
                 ),
                 (
-                    "Performance report",
-                    "Open in Files / Reports".into(),
+                    "Diagnostic report",
+                    "Export one ZIP to share".into(),
+                    Action::ExportDiagnostics,
+                ),
+                (
+                    "Raw performance data",
+                    "Advanced / JSONL in Reports".into(),
                     Action::ExportPerformance,
                 ),
                 (
@@ -900,10 +897,7 @@ impl Launcher {
                 );
                 if matches!(
                     action,
-                    Action::PerformanceHints
-                        | Action::GpuProfile
-                        | Action::Immersive
-                        | Action::Cutout
+                    Action::PerformanceHints | Action::Immersive | Action::Cutout
                 ) {
                     toggle(
                         &mut ui,
@@ -975,7 +969,7 @@ impl Launcher {
                 &mut ui,
                 &mut self.targets,
                 [32.0, h - 114.0, w * 0.5 - 38.0, 42.0],
-                "Startup diagnostics",
+                "Diagnostics",
                 Action::Logs,
                 false,
             );
@@ -1047,13 +1041,11 @@ impl Launcher {
                 "name" => self.catalog.config.name.clone(),
                 "server" => self.catalog.config.server.clone(),
                 "render_scale" => self.catalog.render_scale_text.clone(),
-                "resolution" => self.catalog.resolution_text.clone(),
                 _ => format!("Search: {}", self.catalog.query),
             };
             for ([x, y, w, _], action) in &self.targets {
                 if *action == Action::Field(name)
-                    || (matches!(name, "render_scale" | "resolution")
-                        && *action == Action::RenderScale)
+                    || (name == "render_scale" && *action == Action::RenderScale)
                 {
                     let text = ui.fit_text(Face::Medium, 16.0, &value, w - 24.0);
                     let caret_x = x + 12.0 + ui.measure(Face::Medium, 16.0, &text);
@@ -1317,20 +1309,11 @@ impl Launcher {
                         self.catalog.config.render_scale.percent().to_string();
                     self.chooser = None;
                 }
-                if name == "resolution" {
-                    self.catalog.resolution_text = self
-                        .catalog
-                        .config
-                        .fixed_resolution
-                        .map_or_else(|| "1920 x 1080".into(), crate::display::resolution_label);
-                    self.chooser = None;
-                }
                 self.catalog.editing = Some(name);
                 let initial = match name {
                     "name" => &self.catalog.config.name,
                     "server" => &self.catalog.config.server,
                     "render_scale" => &self.catalog.render_scale_text,
-                    "resolution" => &self.catalog.resolution_text,
                     "client_id" => &self.catalog.config.microsoft_client_id,
                     _ => &self.catalog.query,
                 };
@@ -1353,13 +1336,6 @@ impl Launcher {
                 self.catalog.config.save(&self.home)?;
                 self.chooser = None;
                 crate::display::set_scale(scale);
-            }
-            Some(Action::ChooseResolution(size)) => {
-                let fixed = (size[0] > 0 && size[1] > 0).then_some(size);
-                self.catalog.config.fixed_resolution = fixed;
-                self.catalog.config.save(&self.home)?;
-                self.chooser = None;
-                crate::display::set_fixed(fixed);
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),
@@ -1395,12 +1371,32 @@ impl Launcher {
             }
             Some(Action::Dismiss) => self.chooser = None,
             Some(Action::Logs) => {
-                self.catalog.status = std::fs::read_to_string(self.home.join("android-error.txt"))
-                    .unwrap_or_else(|_| {
-                        "No startup error. In game: F3 shows device, terrain and frame diagnostics."
-                            .into()
-                    });
+                self.catalog.status = crate::diagnostics::summary(&self.home);
+                if let Ok(error) = std::fs::read_to_string(self.home.join("android-error.txt")) {
+                    self.catalog.status = format!(
+                        "Last handled error: {}. {}",
+                        crate::diagnostics::redact(&error),
+                        self.catalog.status
+                    );
+                }
             }
+            Some(Action::ExportDiagnostics) if self.diagnostic_export.is_none() => {
+                let home = self.home.clone();
+                let (sender, receiver) = mpsc::channel();
+                self.diagnostic_export = Some(receiver);
+                self.catalog.status =
+                    "Preparing local diagnostic ZIP. No upload; review before sharing.".into();
+                std::thread::spawn(move || {
+                    let result = crate::diagnostics::export(&home).map(|p| {
+                        p.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned()
+                    });
+                    let _ = sender.send(result);
+                });
+            }
+            Some(Action::ExportDiagnostics) => {}
             Some(Action::RecordPerformance) => {
                 self.catalog.config.record_performance = !self.catalog.config.record_performance;
                 if !self.catalog.config.record_performance {

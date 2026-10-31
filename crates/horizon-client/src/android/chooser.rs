@@ -99,31 +99,9 @@ impl Launcher {
                     Action::Field("render_scale"),
                     false,
                 ));
-                choices.push((
-                    "Native screen size".into(),
-                    "No override: the UI is sized for your whole screen".into(),
-                    Action::ChooseResolution([0, 0]),
-                    c.fixed_resolution.is_none(),
-                ));
-                for size in crate::display::RESOLUTION_PRESETS {
-                    choices.push((
-                        crate::display::resolution_label(size),
-                        "Screen size, same scale as the percent list. Stays sharp".into(),
-                        Action::ChooseResolution(size),
-                        c.fixed_resolution == Some(size),
-                    ));
-                }
-                choices.push((
-                    "Custom resolution...".into(),
-                    "Enter the screen size, like 1920 x 1080".into(),
-                    Action::Field("resolution"),
-                    c.fixed_resolution.is_some_and(|s| {
-                        !crate::display::RESOLUTION_PRESETS.contains(&s)
-                    }),
-                ));
                 (
                     "Client resolution",
-                    "Percent sets sharpness only (lower is blurrier and faster). A resolution sets the screen size and does not blur: 854 x 480 matches 25%, 1920 x 1080 is the full screen.",
+                    "Small screens retain a usable menu size.",
                     choices,
                 )
             }

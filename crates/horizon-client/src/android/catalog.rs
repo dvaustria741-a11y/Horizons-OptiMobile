@@ -44,8 +44,6 @@ pub struct Config {
     pub microsoft_client_id: String,
     pub renderer: RendererMode,
     pub render_scale: crate::display::RenderScale,
-    /// Screen size the UI is laid out for; the percentage only sets sharpness.
-    pub fixed_resolution: Option<[u32; 2]>,
     pub orientation: Orientation,
     #[serde(flatten)]
     pub screen: crate::display::ScreenPreferences,
@@ -131,11 +129,10 @@ impl Config {
         std::fs::rename(part, home.join("android-launcher.json")).map_err(|e| e.to_string())
     }
     pub fn profile_home(&self, home: &Path) -> PathBuf {
-        let root = crate::content_root::content_root(home);
         if self.profile == 0 {
-            root
+            home.into()
         } else {
-            root.join("profiles")
+            home.join("profiles")
                 .join(format!("profile-{}", self.profile))
         }
     }
@@ -196,7 +193,6 @@ pub struct Catalog {
     pub config: Config,
     pub editing: Option<&'static str>,
     pub render_scale_text: String,
-    pub resolution_text: String,
     worker: Option<mpsc::Receiver<Result<Reply, String>>>,
     search_worker: Option<mpsc::Receiver<Result<Vec<Project>, String>>>,
     searches: crate::search_queue::Queue<(Page, browser::SourceId, String, usize), Vec<Project>>,
@@ -228,7 +224,6 @@ impl Catalog {
             config,
             editing: None,
             render_scale_text: String::new(),
-            resolution_text: String::new(),
             worker: None,
             search_worker: None,
             searches: crate::search_queue::Queue::new(),
@@ -676,7 +671,6 @@ impl Catalog {
             Some("name") => &mut self.config.name,
             Some("server") => &mut self.config.server,
             Some("render_scale") => &mut self.render_scale_text,
-            Some("resolution") => &mut self.resolution_text,
             Some("client_id") => &mut self.config.microsoft_client_id,
             _ => &mut self.query,
         };
@@ -691,18 +685,6 @@ impl Catalog {
                         Ok(scale) => {
                             self.config.render_scale = scale;
                             crate::display::set_scale(scale);
-                        }
-                        Err(error) => {
-                            self.status = error.into();
-                            return;
-                        }
-                    }
-                }
-                if self.editing == Some("resolution") {
-                    match crate::display::parse_resolution(&self.resolution_text) {
-                        Ok(size) => {
-                            self.config.fixed_resolution = Some(size);
-                            crate::display::set_fixed(Some(size));
                         }
                         Err(error) => {
                             self.status = error.into();
