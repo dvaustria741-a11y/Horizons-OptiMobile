@@ -76,7 +76,15 @@ jobs:
             echo "::warning::Keystore secrets are incomplete; signing with the throwaway development key."
           fi
       - name: Build APK
-        run: python3 tools/android_build.py --abi "$ABI" --public --sdk "$ANDROID_HOME" --java-home "${JAVA_HOME_17_X64:-$JAVA_HOME}" --gradle "$HOME/gradle-8.14/bin/gradle"
+        run: |
+          # Gradle sometimes cannot fetch its own dependencies from Maven Central or Google's
+          # repository for a moment; Rust is already built by then, so a retry costs seconds.
+          for attempt in 1 2 3; do
+            python3 tools/android_build.py --abi "$ABI" --public --sdk "$ANDROID_HOME" --java-home "${JAVA_HOME_17_X64:-$JAVA_HOME}" --gradle "$HOME/gradle-8.14/bin/gradle" && exit 0
+            echo "::warning::Build attempt $attempt failed; retrying in 30 seconds"
+            sleep 30
+          done
+          exit 1
       - name: Show signing certificate
         run: |
           BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
