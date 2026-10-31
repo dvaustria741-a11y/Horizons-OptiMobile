@@ -44,7 +44,7 @@ pub struct Config {
     pub microsoft_client_id: String,
     pub renderer: RendererMode,
     pub render_scale: crate::display::RenderScale,
-    /// Game screen size; the percentage shrinks it further.
+    /// Screen size the UI is laid out for; the percentage only sets sharpness.
     pub fixed_resolution: Option<[u32; 2]>,
     pub orientation: Orientation,
     #[serde(flatten)]

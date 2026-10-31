@@ -119,10 +119,11 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
     let [_, _, width, height] =
         winit::platform::android::native_content_rect([physical.width, physical.height]);
     let view = [width, height];
-    // The same path the percentage uses: the window's frame size. A resolution
-    // sets the base screen size, and the percentage shrinks it further.
-    let base = fit_resolution(requested_fixed(), view).unwrap_or(view);
-    let size = scale.buffer_size(base);
+    // The percentage sets only how many pixels the frame has (sharpness). The
+    // screen size the UI is laid out for follows the resolution alone.
+    let layout = fit_resolution(requested_fixed(), view).unwrap_or(view);
+    horizon_client::hud::set_layout_reference(Some(layout));
+    let size = scale.buffer_size(view);
     if size == [current.width, current.height] {
         winit::platform::android::set_native_input_scale([
             size[0] as f64 / view[0] as f64,
@@ -137,8 +138,7 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
 #[cfg(target_os = "android")]
 fn set_render_size(window: &winit::window::Window, size: [u32; 2]) -> Result<[u32; 2], String> {
     use winit::platform::android::WindowExtAndroid;
-    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100
-        && requested_fixed().is_none();
+    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100;
     let physical = window.outer_size();
     let rect = winit::platform::android::native_content_rect([physical.width, physical.height]);
     let target = if native && rect == [0, 0, physical.width, physical.height] {

@@ -101,14 +101,14 @@ impl Launcher {
                 ));
                 choices.push((
                     "Native screen size".into(),
-                    "No override: your whole screen, then the percent".into(),
+                    "No override: the UI is sized for your whole screen".into(),
                     Action::ChooseResolution([0, 0]),
                     c.fixed_resolution.is_none(),
                 ));
                 for size in crate::display::RESOLUTION_PRESETS {
                     choices.push((
                         crate::display::resolution_label(size),
-                        "Sets the game screen size, like the percent does. Fewer pixels, chunkier, faster".into(),
+                        "Screen size: UI sized for it. The picture stays sharp".into(),
                         Action::ChooseResolution(size),
                         c.fixed_resolution == Some(size),
                     ));
@@ -123,7 +123,7 @@ impl Launcher {
                 ));
                 (
                     "Client resolution",
-                    "A resolution sets the screen size. The percent then shrinks it further, so use 100% to get exactly the resolution.",
+                    "Percent sets sharpness only (lower is blurrier and faster). A resolution sets the screen size and does not blur.",
                     choices,
                 )
             }
