@@ -3,7 +3,7 @@ use horizon_client::{
     Result,
     content_files::{self, Kind},
     hud::{HudAtlas, HudBatch, rgba},
-    ui_theme::{Face, Ui, color},
+    ui_theme::{Face, Ui, skin as color},
 };
 use jni::{
     JNIEnv,
