@@ -89,7 +89,7 @@ impl Launcher {
                                 "Lower resolution for the whole picture".into()
                             },
                             Action::ChooseRenderScale(crate::display::RenderScale::new(percent)),
-                            c.fixed_resolution.is_none() && c.render_scale.percent() == percent,
+                            c.render_scale.percent() == percent,
                         )
                     })
                     .collect();
@@ -99,17 +99,23 @@ impl Launcher {
                     Action::Field("render_scale"),
                     false,
                 ));
+                choices.push((
+                    "Native screen size".into(),
+                    "No override: the UI size follows the frame".into(),
+                    Action::ChooseResolution([0, 0]),
+                    c.fixed_resolution.is_none(),
+                ));
                 for size in crate::display::RESOLUTION_PRESETS {
                     choices.push((
                         crate::display::resolution_label(size),
-                        "Fixed size. Fits your screen without stretching; never enlarged".into(),
+                        "Screen size for the UI. Stays sharp; the percent sets blur".into(),
                         Action::ChooseResolution(size),
                         c.fixed_resolution == Some(size),
                     ));
                 }
                 choices.push((
                     "Custom resolution...".into(),
-                    "Enter width x height, like 1920 x 1080".into(),
+                    "Enter the screen size, like 1920 x 1080".into(),
                     Action::Field("resolution"),
                     c.fixed_resolution.is_some_and(|s| {
                         !crate::display::RESOLUTION_PRESETS.contains(&s)
@@ -117,7 +123,7 @@ impl Launcher {
                 ));
                 (
                     "Client resolution",
-                    "Percent or a fixed size. For an exact 1920 x 1080, also set Aspect ratio to 16:9.",
+                    "Percent sets sharpness (lower is blurrier and faster). A resolution sets the screen size the UI is laid out for, and stays sharp.",
                     choices,
                 )
             }

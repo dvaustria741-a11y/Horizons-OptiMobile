@@ -66,14 +66,12 @@ pub fn parse_resolution(text: &str) -> Result<[u32; 2], &'static str> {
     Ok([w, h])
 }
 
-/// Frame size for the view: a fixed resolution fits inside the view without
-/// stretching or enlarging, otherwise the percentage scale applies. Portrait
-/// screens swap the requested width and height.
+/// Screen size the UI is laid out for: the fixed resolution fitted inside the
+/// view without stretching or enlarging. Portrait screens swap width and height.
+/// The frame's own sharpness stays with the percentage scale.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-pub fn target_size(scale: RenderScale, fixed: Option<[u32; 2]>, view: [u32; 2]) -> [u32; 2] {
-    let Some([mut fw, mut fh]) = fixed else {
-        return scale.buffer_size(view);
-    };
+pub fn layout_size(fixed: Option<[u32; 2]>, view: [u32; 2]) -> Option<[u32; 2]> {
+    let [mut fw, mut fh] = fixed?;
     let [w, h] = view.map(|v| v.max(1));
     if h > w {
         std::mem::swap(&mut fw, &mut fh);
@@ -83,7 +81,7 @@ pub fn target_size(scale: RenderScale, fixed: Option<[u32; 2]>, view: [u32; 2]) 
         .min(fh as f64 / h as f64)
         .min(1.0)
         .max(minimum);
-    [w, h].map(|v| (v as f64 * factor).round().max(1.0) as u32)
+    Some([w, h].map(|v| (v as f64 * factor).round().max(1.0) as u32))
 }
 
 #[cfg(target_os = "android")]
@@ -122,7 +120,8 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
     let [_, _, width, height] =
         winit::platform::android::native_content_rect([physical.width, physical.height]);
     let view = [width, height];
-    let size = target_size(scale, requested_fixed(), view);
+    horizon_client::hud::set_layout_reference(layout_size(requested_fixed(), view));
+    let size = scale.buffer_size(view);
     if size == [current.width, current.height] {
         winit::platform::android::set_native_input_scale([
             size[0] as f64 / view[0] as f64,
@@ -137,8 +136,7 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
 #[cfg(target_os = "android")]
 fn set_render_size(window: &winit::window::Window, size: [u32; 2]) -> Result<[u32; 2], String> {
     use winit::platform::android::WindowExtAndroid;
-    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100
-        && requested_fixed().is_none();
+    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100;
     let physical = window.outer_size();
     let rect = winit::platform::android::native_content_rect([physical.width, physical.height]);
     let target = if native && rect == [0, 0, physical.width, physical.height] {
@@ -205,27 +203,12 @@ mod tests {
     }
 
     #[test]
-    fn fixed_resolution_fits_without_stretching_or_enlarging() {
-        assert_eq!(
-            target_size(RenderScale::default(), Some([1920, 1080]), [2400, 1350]),
-            [1920, 1080]
-        );
-        assert_eq!(
-            target_size(RenderScale::default(), Some([1920, 1080]), [2772, 1280]),
-            [1920, 887]
-        );
-        assert_eq!(
-            target_size(RenderScale::default(), Some([1920, 1080]), [1280, 720]),
-            [1280, 720]
-        );
-        assert_eq!(
-            target_size(RenderScale::default(), Some([1920, 1080]), [1080, 1920]),
-            [1080, 1920]
-        );
-        assert_eq!(
-            target_size(RenderScale::new(50), None, [2772, 1280]),
-            [1386, 640]
-        );
+    fn layout_size_fits_without_stretching_or_enlarging() {
+        assert_eq!(layout_size(None, [2772, 1280]), None);
+        assert_eq!(layout_size(Some([1920, 1080]), [2400, 1350]), Some([1920, 1080]));
+        assert_eq!(layout_size(Some([1920, 1080]), [2772, 1280]), Some([1920, 887]));
+        assert_eq!(layout_size(Some([1920, 1080]), [1280, 720]), Some([1280, 720]));
+        assert_eq!(layout_size(Some([1920, 1080]), [1080, 1920]), Some([1080, 1920]));
     }
 
     #[test]

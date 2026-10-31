@@ -873,6 +873,39 @@ fn clip_polygon(poly: &[HudVertex], axis: usize, limit: f32, keep_below: bool) -
 }
 /// The GUI Scale option (0 = auto).
 pub static GUI_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Screen size the UI is laid out for, packed width << 32 | height (0 = the
+/// real frame size). The frame keeps its own sharpness; only the UI size follows.
+pub static LAYOUT_REFERENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn set_layout_reference(size: Option<[u32; 2]>) {
+    let packed = size.map_or(0, |[w, h]| (u64::from(w) << 32) | u64::from(h));
+    LAYOUT_REFERENCE.store(packed, std::sync::atomic::Ordering::Relaxed);
+}
+/// Window.calculateScale for `window`, or for `reference` stretched over it:
+/// the UI looks as it would on the reference screen, drawn in whole pixels.
+pub fn gui_scale_for(window: [u32; 2], limit: u32, reference: Option<[u32; 2]>) -> u32 {
+    let auto = |size: [u32; 2]| {
+        let mut scale = 1;
+        while (limit == 0 || scale < limit)
+            && size[0] / (scale + 1) >= 320
+            && size[1] / (scale + 1) >= 240
+        {
+            scale += 1;
+        }
+        scale
+    };
+    match reference {
+        Some(r) if r[0] > 0 && r[1] > 0 && r != window => {
+            let mut scale =
+                (f64::from(auto(r)) * f64::from(window[0]) / f64::from(r[0])).round().max(1.0)
+                    as u32;
+            while scale > 1 && (window[0] / scale < 320 || window[1] / scale < 240) {
+                scale -= 1;
+            }
+            scale
+        }
+        _ => auto(window),
+    }
+}
 /// Layout only passive information inside a safe rectangle. The main HUD,
 /// touch controls, menu hit tests and world projection keep their full surface.
 pub fn inset_overlay(batch: &mut HudBatch, margins: [f32; 2], draw: impl FnOnce(&mut HudBatch)) {
@@ -947,13 +980,9 @@ impl HudBatch {
     /// capped by the GUI Scale option (0 = auto).
     pub fn new(window: [u32; 2]) -> Self {
         let limit = GUI_SCALE.load(std::sync::atomic::Ordering::Relaxed);
-        let mut scale = 1;
-        while (limit == 0 || scale < limit)
-            && window[0] / (scale + 1) >= 320
-            && window[1] / (scale + 1) >= 240
-        {
-            scale += 1;
-        }
+        let packed = LAYOUT_REFERENCE.load(std::sync::atomic::Ordering::Relaxed);
+        let reference = (packed != 0).then(|| [(packed >> 32) as u32, (packed & 0xffff_ffff) as u32]);
+        let scale = gui_scale_for(window, limit, reference);
         Self {
             vertices: Vec::new(),
             scale: scale as f32,
@@ -2091,6 +2120,16 @@ impl HudRenderer {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn layout_reference_sizes_the_ui_without_changing_the_frame() {
+        let native = [2772, 1280];
+        assert_eq!(gui_scale_for(native, 0, None), 5);
+        assert_eq!(gui_scale_for(native, 0, Some([854, 394])), 3);
+        assert_eq!(gui_scale_for(native, 0, Some([1920, 887])), 4);
+        assert_eq!(gui_scale_for(native, 0, Some(native)), 5);
+        assert_eq!(gui_scale_for([1920, 1080], 0, Some([854, 480])), 4);
+        assert_eq!(gui_scale_for([693, 320], 0, Some([854, 394])), 1);
+    }
     use super::*;
     #[test]
     fn inset_only_moves_the_information_overlay_not_controls_or_viewport() {

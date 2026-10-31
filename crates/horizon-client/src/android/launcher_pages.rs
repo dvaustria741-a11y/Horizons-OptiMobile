@@ -792,7 +792,11 @@ impl Launcher {
                     } else if self.catalog.editing == Some("resolution") {
                         self.catalog.resolution_text.clone()
                     } else if let Some(size) = c.fixed_resolution {
-                        crate::display::resolution_label(size)
+                        format!(
+                            "{}% / {}",
+                            c.render_scale.percent(),
+                            crate::display::resolution_label(size)
+                        )
                     } else {
                         format!("{}%", c.render_scale.percent())
                     },
@@ -1346,17 +1350,16 @@ impl Launcher {
             Some(Action::RenderScale) => self.open_chooser(chooser::Kind::RenderScale),
             Some(Action::ChooseRenderScale(scale)) => {
                 self.catalog.config.render_scale = scale;
-                self.catalog.config.fixed_resolution = None;
                 self.catalog.config.save(&self.home)?;
                 self.chooser = None;
                 crate::display::set_scale(scale);
-                crate::display::set_fixed(None);
             }
             Some(Action::ChooseResolution(size)) => {
-                self.catalog.config.fixed_resolution = Some(size);
+                let fixed = (size[0] > 0 && size[1] > 0).then_some(size);
+                self.catalog.config.fixed_resolution = fixed;
                 self.catalog.config.save(&self.home)?;
                 self.chooser = None;
-                crate::display::set_fixed(Some(size));
+                crate::display::set_fixed(fixed);
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),
