@@ -1,0 +1,69 @@
+name: Build APK
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: Android ABI
+        type: choice
+        options: [arm64-v8a, x86_64]
+        default: arm64-v8a
+permissions:
+  contents: read
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    env:
+      HORIZON_TELEMETRY_URL: "off"
+      CARGO_BUILD_JOBS: "3"
+      ABI: ${{ inputs.abi || 'arm64-v8a' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/node_modules "$AGENT_TOOLSDIRECTORY"
+          df -h /
+      - name: Install toolchains
+        run: |
+          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          rustup toolchain install "$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+          rustup target add aarch64-linux-android x86_64-linux-android
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.14-bin.zip -o "$RUNNER_TEMP/gradle.zip"
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$HOME"
+      - name: Prepare engine tables
+        run: python3 tools/android_prepare.py
+      - name: Select signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "HORIZON_RELEASE_KEYSTORE=$RUNNER_TEMP/release.keystore"
+              echo "HORIZON_RELEASE_STORE_PASSWORD=$STORE_PASSWORD"
+              echo "HORIZON_RELEASE_KEY_ALIAS=$KEY_ALIAS"
+              echo "HORIZON_RELEASE_KEY_PASSWORD=${KEY_PASSWORD:-$STORE_PASSWORD}"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the project keystore."
+          else
+            echo "::warning::Keystore secrets are incomplete; signing with the throwaway development key."
+          fi
+      - name: Build APK
+        run: python3 tools/android_build.py --abi "$ABI" --public --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64" --gradle "$HOME/gradle-8.14/bin/gradle"
+      - name: Show signing certificate
+        run: |
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$BT/apksigner" verify --print-certs .local/android/apk/"$ABI"/*.apk | head -5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: horizon-android-${{ env.ABI }}
+          path: .local/android/apk/${{ env.ABI }}/*.apk
+          if-no-files-found: error

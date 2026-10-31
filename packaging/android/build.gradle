@@ -18,6 +18,15 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Distribution key, supplied by CI (never stored in the repository).
+        if (System.getenv('HORIZON_RELEASE_KEYSTORE')) {
+            distribution {
+                storeFile file(System.getenv('HORIZON_RELEASE_KEYSTORE'))
+                storePassword System.getenv('HORIZON_RELEASE_STORE_PASSWORD')
+                keyAlias System.getenv('HORIZON_RELEASE_KEY_ALIAS')
+                keyPassword System.getenv('HORIZON_RELEASE_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
@@ -31,7 +40,7 @@ android {
             minifyEnabled false
             // Retain the existing installation's signing identity for upgrades.
             // Only the public certificate enters the APK; the key stays in .local/.
-            signingConfig signingConfigs.development
+            signingConfig System.getenv('HORIZON_RELEASE_KEYSTORE') ? signingConfigs.distribution : signingConfigs.development
         }
     }
     sourceSets.main {
