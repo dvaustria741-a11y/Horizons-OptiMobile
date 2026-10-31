@@ -12,8 +12,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: build-apk-${{ github.ref }}
-  cancel-in-progress: true
+  # One group per commit and never cancel: every pushed commit gets its own full build.
+  group: build-apk-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
   apk:
     runs-on: ubuntu-24.04
