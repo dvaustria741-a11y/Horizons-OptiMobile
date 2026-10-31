@@ -103,8 +103,69 @@ impl Fonts {
         PxScale::from(px * font.height_unscaled() / upem)
     }
 }
+/// Launcher icons: white 96px masks, tinted and scaled when drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Icon {
+    Play,
+    Mods,
+    Packs,
+    Shaders,
+    Installed,
+    Settings,
+    Account,
+    Search,
+    Folder,
+    Import,
+    Delete,
+    Refresh,
+    Info,
+    Diagnostics,
+    Link,
+}
+impl Icon {
+    fn png(self) -> &'static [u8] {
+        match self {
+            Self::Play => include_bytes!("../assets/launcher-icons/play.png"),
+            Self::Mods => include_bytes!("../assets/launcher-icons/mods.png"),
+            Self::Packs => include_bytes!("../assets/launcher-icons/packs.png"),
+            Self::Shaders => include_bytes!("../assets/launcher-icons/shaders.png"),
+            Self::Installed => include_bytes!("../assets/launcher-icons/installed.png"),
+            Self::Settings => include_bytes!("../assets/launcher-icons/settings.png"),
+            Self::Account => include_bytes!("../assets/launcher-icons/account.png"),
+            Self::Search => include_bytes!("../assets/launcher-icons/search.png"),
+            Self::Folder => include_bytes!("../assets/launcher-icons/folder.png"),
+            Self::Import => include_bytes!("../assets/launcher-icons/import.png"),
+            Self::Delete => include_bytes!("../assets/launcher-icons/delete.png"),
+            Self::Refresh => include_bytes!("../assets/launcher-icons/refresh.png"),
+            Self::Info => include_bytes!("../assets/launcher-icons/info.png"),
+            Self::Diagnostics => include_bytes!("../assets/launcher-icons/diagnostics.png"),
+            Self::Link => include_bytes!("../assets/launcher-icons/link.png"),
+        }
+    }
+}
+const ICON_PX: u32 = 96;
+/// Decode an icon's alpha channel (96x96 RGBA, 8-bit).
+fn icon_alpha(bytes: &[u8]) -> Option<Vec<f32>> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut reader = decoder.read_info().ok()?;
+    let mut data = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut data).ok()?;
+    if info.color_type != png::ColorType::Rgba
+        || info.bit_depth != png::BitDepth::Eight
+        || info.width != ICON_PX
+        || info.height != ICON_PX
+    {
+        return None;
+    }
+    Some(
+        data.chunks_exact(4)
+            .map(|p| f32::from(p[3]) / 255.0)
+            .collect(),
+    )
+}
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Key {
+    Icon(Icon),
     Glyph(Face, u16, u16),
     /// A quarter disc (`false`) or a 1px quarter ring of this radius in pixels.
     Corner(u16, bool),
@@ -238,6 +299,25 @@ impl Cache {
             self.entries.insert(key, made);
         }
         made
+    }
+    fn icon(&mut self, atlas: &HudAtlas, icon: Icon) -> Option<Rect> {
+        let key = Key::Icon(icon);
+        if let Some(c) = self.entries.get(&key) {
+            return c.rect;
+        }
+        let alpha = icon_alpha(icon.png())?;
+        let rect = self.upload(atlas, ICON_PX, ICON_PX, &alpha);
+        if rect.is_some() {
+            self.entries.insert(
+                key,
+                Cached {
+                    rect,
+                    left: 0.0,
+                    top: 0.0,
+                },
+            );
+        }
+        rect
     }
     fn corner(&mut self, atlas: &HudAtlas, r: u16, ring: bool) -> Option<Rect> {
         let key = Key::Corner(r, ring);
@@ -452,6 +532,22 @@ impl<'a> Ui<'a> {
         self.raw_fill(x0, y0 + r, x0 + 1.0, y1 - r, color);
         self.raw_fill(x1 - 1.0, y0 + r, x1, y1 - r, color);
         self.corners(x0, y0, x1, y1, r, true, color);
+    }
+
+    /// A launcher icon, `size` dp square with its top-left at (`x`, `y`).
+    pub fn icon(&mut self, icon: Icon, x: f32, y: f32, size: f32, color: u32) {
+        if color >> 24 == 0 {
+            return;
+        }
+        let atlas = self.atlas;
+        let Some(rect) = with_cache(atlas, |c| c.icon(atlas, icon)) else {
+            return;
+        };
+        let side = (size * self.density).round();
+        let (px, py) = (self.px_x(x), self.px_y(y));
+        let s = self.scale;
+        self.batch
+            .rect_uv(px / s, py / s, side / s, side / s, rect, color);
     }
 
     // ---- text ----

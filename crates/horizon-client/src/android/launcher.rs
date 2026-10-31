@@ -58,6 +58,13 @@ pub(super) struct Launcher {
     session_ready: bool,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    /// Launcher animation state (navigation slide, page fade, glow).
+    epoch: Instant,
+    ui_clock: Instant,
+    nav_pos: f32,
+    page_shown: Page,
+    page_since: Instant,
+    animating: bool,
 }
 
 impl Launcher {
@@ -85,6 +92,9 @@ impl Launcher {
         }
         crate::configure_input_mode(catalog.config.input_host);
         crate::device_runtime::configure(catalog.config.device);
+        let first_page = catalog.page;
+        let first_index = Page::ALL.iter().position(|p| *p == first_page).unwrap_or(0) as f32;
+        let started = Instant::now();
         Self {
             home,
             controller_edges: Default::default(),
@@ -112,6 +122,12 @@ impl Launcher {
             session_ready: false,
             focus: None,
             diagnostic_export: None,
+            epoch: started,
+            ui_clock: started,
+            nav_pos: first_index,
+            page_shown: first_page,
+            page_since: started,
+            animating: false,
         }
     }
 
@@ -560,7 +576,7 @@ impl ApplicationHandler for Launcher {
             window.request_redraw();
         }
         events.set_control_flow(ControlFlow::WaitUntil(
-            Instant::now() + Duration::from_millis(100),
+            Instant::now() + Duration::from_millis(if self.animating { 33 } else { 100 }),
         ));
     }
     fn exiting(&mut self, events: &ActiveEventLoop) {
