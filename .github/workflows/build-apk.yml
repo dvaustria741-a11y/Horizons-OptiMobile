@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 200
     env:
       HORIZON_TELEMETRY_URL: "off"
@@ -30,7 +30,23 @@ jobs:
           df -h /
       - name: Install toolchains
         run: |
-          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found on this runner image; installing Android command-line tools."
+            SDK="$HOME/android-sdk"
+            mkdir -p "$SDK/cmdline-tools"
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$RUNNER_TEMP/cmdline-tools.zip"
+            unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+            echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK" "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
           rustup toolchain install "$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
           rustup target add aarch64-linux-android x86_64-linux-android
           curl -fsSL https://services.gradle.org/distributions/gradle-8.14-bin.zip -o "$RUNNER_TEMP/gradle.zip"
@@ -57,7 +73,7 @@ jobs:
             echo "::warning::Keystore secrets are incomplete; signing with the throwaway development key."
           fi
       - name: Build APK
-        run: python3 tools/android_build.py --abi "$ABI" --public --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64" --gradle "$HOME/gradle-8.14/bin/gradle"
+        run: python3 tools/android_build.py --abi "$ABI" --public --sdk "$ANDROID_HOME" --java-home "${JAVA_HOME_17_X64:-$JAVA_HOME}" --gradle "$HOME/gradle-8.14/bin/gradle"
       - name: Show signing certificate
         run: |
           BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
