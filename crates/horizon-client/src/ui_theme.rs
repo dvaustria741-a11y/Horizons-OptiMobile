@@ -471,8 +471,10 @@ impl<'a> Ui<'a> {
                 cursor.0 * ui.scale / ui.density,
                 cursor.1 * ui.scale / ui.density,
             );
-        } else if ph < 700.0 {
-            ui.density = (pw / 1040.0).min(ph / 700.0).clamp(0.5, 4.0);
+        } else {
+            // Landscape: a 540 dp tall page at any resolution (what the launcher showed when it
+            // was drawn at 25%), so the picture is as large as before but drawn at full sharpness.
+            ui.density = (ph / 540.0).min(pw / 960.0).clamp(0.5, 4.0);
             ui.w = pw / ui.density;
             ui.h = ph / ui.density;
             ui.cursor = (

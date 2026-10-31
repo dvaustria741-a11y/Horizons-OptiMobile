@@ -121,6 +121,30 @@ fn mix(a: u32, b: u32, t: f32) -> u32 {
     };
     rgb(ch(16) << 16 | ch(8) << 8 | ch(0))
 }
+/// A vertical gradient from `top` to `bottom` (`0xRRGGBB`) filling a rounded rectangle,
+/// drawn as thin opaque bands whose ends follow the rounded corners.
+fn gradient(ui: &mut Ui, rect: [f32; 4], radius: f32, top: u32, bottom: u32) {
+    let [x, y, w, h] = rect;
+    let bands = ((h / 3.0) as usize).clamp(6, 72);
+    for i in 0..bands {
+        let (t0, t1) = (i as f32 / bands as f32, (i + 1) as f32 / bands as f32);
+        let mid = h * (t0 + t1) / 2.0;
+        let edge = mid.min(h - mid);
+        let cut = if edge < radius {
+            radius - (radius * radius - (radius - edge) * (radius - edge)).sqrt()
+        } else {
+            0.0
+        };
+        ui.rounded(
+            x + cut,
+            y + h * t0,
+            w - 2.0 * cut,
+            h * (t1 - t0) + 0.6,
+            0.0,
+            mix(top, bottom, (t0 + t1) / 2.0),
+        );
+    }
+}
 /// The hero card's sky: night teal at the top, warm at the horizon.
 fn sky(t: f32) -> u32 {
     const STOPS: [(f32, u32); 4] = [
@@ -180,14 +204,18 @@ pub(super) fn pill(
     accent: bool,
 ) {
     let [x, y, w, h] = rect;
-    ui.rounded(
-        x,
-        y,
-        w,
-        h,
-        (h / 2.0).min(if h >= 56.0 { 30.0 } else { 14.0 }),
-        if accent { color::ACCENT } else { color::RAISED },
-    );
+    if accent && h >= 56.0 {
+        gradient(ui, rect, (h / 2.0).min(30.0), 0x62e89b, 0x1f9d5c);
+    } else {
+        ui.rounded(
+            x,
+            y,
+            w,
+            h,
+            (h / 2.0).min(14.0),
+            if accent { color::ACCENT } else { color::RAISED },
+        );
+    }
     if !accent {
         ui.border(x, y, w, h, (h / 2.0).min(14.0), tint(color::ACCENT, 70));
     }
@@ -341,6 +369,7 @@ impl Launcher {
         let scale = ui.density / ui.batch.scale;
         ui.batch
             .fill(&gui.atlas, 0.0, 0.0, w * scale, h * scale, color::BG);
+        gradient(&mut ui, [0.0, 0.0, w, h], 0.0, 0x0f2a20, 0x040b08);
         let full_h = h;
         let wide = w >= 700.0;
         let rail = if wide { 92.0 } else { 0.0 };
@@ -415,7 +444,7 @@ impl Launcher {
         }
         // ---- navigation ----
         if wide {
-            ui.rounded(0.0, 0.0, rail, full_h, 0.0, color::RAISED);
+            gradient(&mut ui, [0.0, 0.0, rail, full_h], 0.0, 0x0e231a, 0x061009);
             ui.rounded(rail - 1.0, 0.0, 1.0, full_h, 0.0, color::BORDER);
             ui.rounded(14.0, 14.0, 64.0, 64.0, 22.0, tint(color::ACCENT, 34));
             ui.rounded(18.0, 18.0, 56.0, 56.0, 18.0, color::ACCENT);
@@ -527,8 +556,8 @@ impl Launcher {
             let top = 160.0 + oy;
             self.animating |= installed || installing;
             let card = [lx - 14.0, top - 20.0, cw + 28.0, (h - top - 92.0).max(80.0)];
-            let card_fill = rgb(0x0d1f18);
-            ui.rounded(card[0], card[1], card[2], card[3], 22.0, card_fill);
+            let (card_top, card_bottom) = (0x153629, 0x0b1a13);
+            gradient(&mut ui, card, 22.0, card_top, card_bottom);
             if !installing && !compact {
                 let (hx, right) = (card[0] + card[2] * 0.40, card[0] + card[2]);
                 let (hw, radius) = (right - hx, 22.0_f32);
@@ -557,30 +586,29 @@ impl Launcher {
                 }
                 ui.hero(hx, card[1], hw, card[3]);
                 // Square picture corners poke out of the card's rounded corners: cover them.
+                let page_at = |y: f32| mix(0x0f2a20, 0x040b08, y / full_h);
                 for k in 0..22 {
                     let cut = inset(k as f32 + 0.5);
-                    ui.rounded(right - cut, card[1] + k as f32, cut + 0.5, 1.0, 0.0, color::BG);
-                    ui.rounded(
-                        right - cut,
-                        card[1] + card[3] - 1.0 - k as f32,
-                        cut + 0.5,
-                        1.0,
-                        0.0,
-                        color::BG,
-                    );
+                    let (top_y, bottom_y) = (card[1] + k as f32, card[1] + card[3] - 1.0 - k as f32);
+                    ui.rounded(right - cut, top_y, cut + 0.5, 1.0, 0.0, page_at(top_y));
+                    ui.rounded(right - cut, bottom_y, cut + 0.5, 1.0, 0.0, page_at(bottom_y));
                 }
                 // Melt the picture's left edge into the card.
-                let (strips, fade) = (28, hw * 0.38);
+                let (strips, rows, fade) = (24, 12, hw * 0.38);
                 for i in 0..strips {
-                    let a = (1.0 - i as f32 / strips as f32).powf(1.6);
-                    ui.rounded(
-                        hx + fade * i as f32 / strips as f32,
-                        card[1],
-                        fade / strips as f32 + 0.6,
-                        card[3],
-                        0.0,
-                        tint(card_fill, (a * 255.0) as u8),
-                    );
+                    let (s0, s1) = (i as f32 / strips as f32, (i + 1) as f32 / strips as f32);
+                    let alpha = ((1.0 - (s0 + s1) / 2.0).powf(1.6) * 255.0) as u8;
+                    for j in 0..rows {
+                        let (r0, r1) = (j as f32 / rows as f32, (j + 1) as f32 / rows as f32);
+                        ui.rounded(
+                            hx + fade * s0,
+                            card[1] + card[3] * r0,
+                            fade * (s1 - s0),
+                            card[3] * (r1 - r0),
+                            0.0,
+                            tint(mix(card_top, card_bottom, (r0 + r1) / 2.0), alpha),
+                        );
+                    }
                 }
             }
             ui.border(card[0], card[1], card[2], card[3], 22.0, tint(color::ACCENT, 80));
