@@ -279,6 +279,9 @@ impl Launcher {
             horizon_client::android_runtime::clear_gamepads();
             self.controller_edges = Default::default();
             self.controller_repeat = None;
+            // The game applies these statics every frame; set them explicitly at hand-off.
+            crate::display::set_scale(self.catalog.config.render_scale);
+            crate::display::set_fixed(self.catalog.config.fixed_resolution);
             let game = match game::android_game() {
                 Ok(game) => game,
                 Err(error) => {

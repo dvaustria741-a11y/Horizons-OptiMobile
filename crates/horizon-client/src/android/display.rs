@@ -149,6 +149,7 @@ fn set_render_size(window: &winit::window::Window, size: [u32; 2]) -> Result<[u3
     let actual = window
         .set_render_size(winit::dpi::PhysicalSize::new(target[0], target[1]))
         .map_err(|e| e.to_string())?;
+    log::info!("Android frame size {}x{}", actual.width, actual.height);
     Ok([actual.width, actual.height])
 }
 
