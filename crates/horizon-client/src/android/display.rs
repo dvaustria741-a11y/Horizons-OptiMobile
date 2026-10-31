@@ -66,11 +66,10 @@ pub fn parse_resolution(text: &str) -> Result<[u32; 2], &'static str> {
     Ok([w, h])
 }
 
-/// Screen size the UI is laid out for: the fixed resolution fitted inside the
-/// view without stretching or enlarging. Portrait screens swap width and height.
-/// The frame's own sharpness stays with the percentage scale.
+/// The fixed resolution fitted inside the view without stretching or
+/// enlarging. Portrait screens swap width and height.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-pub fn layout_size(fixed: Option<[u32; 2]>, view: [u32; 2]) -> Option<[u32; 2]> {
+pub fn fit_resolution(fixed: Option<[u32; 2]>, view: [u32; 2]) -> Option<[u32; 2]> {
     let [mut fw, mut fh] = fixed?;
     let [w, h] = view.map(|v| v.max(1));
     if h > w {
@@ -120,8 +119,10 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
     let [_, _, width, height] =
         winit::platform::android::native_content_rect([physical.width, physical.height]);
     let view = [width, height];
-    horizon_client::hud::set_layout_reference(layout_size(requested_fixed(), view));
-    let size = scale.buffer_size(view);
+    // The same path the percentage uses: the window's frame size. A resolution
+    // sets the base screen size, and the percentage shrinks it further.
+    let base = fit_resolution(requested_fixed(), view).unwrap_or(view);
+    let size = scale.buffer_size(base);
     if size == [current.width, current.height] {
         winit::platform::android::set_native_input_scale([
             size[0] as f64 / view[0] as f64,
@@ -136,7 +137,8 @@ fn desired(window: &winit::window::Window) -> Option<[u32; 2]> {
 #[cfg(target_os = "android")]
 fn set_render_size(window: &winit::window::Window, size: [u32; 2]) -> Result<[u32; 2], String> {
     use winit::platform::android::WindowExtAndroid;
-    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100;
+    let native = REQUESTED_SCALE.load(std::sync::atomic::Ordering::Relaxed) == 100
+        && requested_fixed().is_none();
     let physical = window.outer_size();
     let rect = winit::platform::android::native_content_rect([physical.width, physical.height]);
     let target = if native && rect == [0, 0, physical.width, physical.height] {
@@ -203,12 +205,12 @@ mod tests {
     }
 
     #[test]
-    fn layout_size_fits_without_stretching_or_enlarging() {
-        assert_eq!(layout_size(None, [2772, 1280]), None);
-        assert_eq!(layout_size(Some([1920, 1080]), [2400, 1350]), Some([1920, 1080]));
-        assert_eq!(layout_size(Some([1920, 1080]), [2772, 1280]), Some([1920, 887]));
-        assert_eq!(layout_size(Some([1920, 1080]), [1280, 720]), Some([1280, 720]));
-        assert_eq!(layout_size(Some([1920, 1080]), [1080, 1920]), Some([1080, 1920]));
+    fn fit_resolution_fits_without_stretching_or_enlarging() {
+        assert_eq!(fit_resolution(None, [2772, 1280]), None);
+        assert_eq!(fit_resolution(Some([1920, 1080]), [2400, 1350]), Some([1920, 1080]));
+        assert_eq!(fit_resolution(Some([1920, 1080]), [2772, 1280]), Some([1920, 887]));
+        assert_eq!(fit_resolution(Some([1920, 1080]), [1280, 720]), Some([1280, 720]));
+        assert_eq!(fit_resolution(Some([1920, 1080]), [1080, 1920]), Some([1080, 1920]));
     }
 
     #[test]
