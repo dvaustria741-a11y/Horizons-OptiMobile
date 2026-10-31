@@ -23,25 +23,22 @@ jobs:
           java-version: '17'
       - name: Install Android SDK pieces
         run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
-          mkdir -p "$SDK"
-          SM="$(command -v sdkmanager || find "$SDK" /usr/local/lib/android -name sdkmanager -type f 2>/dev/null | head -1)"
-          if [ -z "$SM" ]; then
-            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline.zip
-            unzip -q /tmp/cmdline.zip -d /tmp/cmdline
-            mkdir -p "$SDK/cmdline-tools"
-            mv /tmp/cmdline/cmdline-tools "$SDK/cmdline-tools/latest"
-            SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          fi
-          echo "Using $SM (SDK at $SDK)"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          export ANDROID_HOME="$HOME/android-sdk"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
+          unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+          mv /tmp/cmdtools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           set +o pipefail
-          yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null
+          yes | "$SDKM" --licenses >/dev/null
           set -o pipefail
-          "$SM" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358"
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
       - name: Install Rust target
         run: |
-          rustup show active-toolchain || rustup toolchain install
+          command -v rustup >/dev/null || { curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal; echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"; export PATH="$HOME/.cargo/bin:$PATH"; }
+          rustup toolchain install
           rustup target add aarch64-linux-android
       - uses: actions/cache@v4
         with:
