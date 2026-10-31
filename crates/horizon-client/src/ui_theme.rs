@@ -68,6 +68,21 @@ pub mod color {
     }
 }
 
+/// The Android launcher's own green palette, under the same names as [`color`] so a
+/// launcher file can `use ...::{skin as color}`. The game's menus keep [`color`].
+pub mod skin {
+    use super::color::hex;
+    pub const BG: u32 = hex(0x08_14_0f, 255);
+    /// Cards and plates: a light green veil over the page.
+    pub const RAISED: u32 = hex(0x7a_ff_b8, 15);
+    pub const HOVER: u32 = hex(0x7a_ff_b8, 30);
+    pub const BORDER: u32 = hex(0x1d_3d_30, 255);
+    pub const TEXT: u32 = hex(0xee_f9_f3, 255);
+    pub const MUTED: u32 = hex(0x9c_b8_aa, 255);
+    pub const ACCENT: u32 = hex(0x3d_d6_7f, 255);
+    pub const ON_ACCENT: u32 = hex(0x03_16_0b, 255);
+}
+
 /// The launcher's type scale and shapes (`horizon_theme`), in dp.
 pub(crate) const SMALL: f32 = horizon_theme::CAPTION.px;
 pub(crate) const BODY: f32 = horizon_theme::LABEL.px;
@@ -144,6 +159,8 @@ impl Icon {
     }
 }
 const ICON_PX: u32 = 96;
+/// The Play page's pixel-art landscape (RGBA, transparent sky).
+const HERO_PNG: &[u8] = include_bytes!("../assets/launcher/hero.png");
 /// Decode an icon's alpha channel (96x96 RGBA, 8-bit).
 fn icon_alpha(bytes: &[u8]) -> Option<Vec<f32>> {
     let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
@@ -166,6 +183,8 @@ fn icon_alpha(bytes: &[u8]) -> Option<Vec<f32>> {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Key {
     Icon(Icon),
+    /// The Play page's landscape picture.
+    Hero,
     Glyph(Face, u16, u16),
     /// A quarter disc (`false`) or a 1px quarter ring of this radius in pixels.
     Corner(u16, bool),
@@ -260,6 +279,55 @@ impl Cache {
             w,
             h,
         })
+    }
+    /// Upload a full-colour RGBA image (8-bit, straight alpha).
+    fn upload_rgba(&mut self, atlas: &HudAtlas, w: u32, h: u32, rgba: Vec<u8>) -> Option<Rect> {
+        let (x, y, region) = self.place(atlas, w, h)?;
+        let (ax, ay) = (
+            (region.u0 * atlas.width as f32).round() as u32 + x,
+            (region.v0 * atlas.height as f32).round() as u32 + y,
+        );
+        self.pending.push(crate::font::Patch {
+            x: ax,
+            y: ay,
+            width: w,
+            height: h,
+            rgba,
+        });
+        let (aw, ah) = (atlas.width as f32, atlas.height as f32);
+        Some(Rect {
+            u0: ax as f32 / aw,
+            v0: ay as f32 / ah,
+            u1: (ax + w) as f32 / aw,
+            v1: (ay + h) as f32 / ah,
+            w,
+            h,
+        })
+    }
+    fn hero(&mut self, atlas: &HudAtlas) -> Option<Rect> {
+        if let Some(c) = self.entries.get(&Key::Hero) {
+            return c.rect;
+        }
+        let decoder = png::Decoder::new(std::io::Cursor::new(HERO_PNG));
+        let mut reader = decoder.read_info().ok()?;
+        let mut data = vec![0; reader.output_buffer_size()?];
+        let info = reader.next_frame(&mut data).ok()?;
+        if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+            return None;
+        }
+        data.truncate(info.buffer_size());
+        let rect = self.upload_rgba(atlas, info.width, info.height, data);
+        if rect.is_some() {
+            self.entries.insert(
+                Key::Hero,
+                Cached {
+                    rect,
+                    left: 0.0,
+                    top: 0.0,
+                },
+            );
+        }
+        rect
     }
     fn glyph(&mut self, atlas: &HudAtlas, face: Face, id: ab_glyph::GlyphId, px: f32) -> Cached {
         let size = (px * 4.0).round() as u16;
@@ -532,6 +600,36 @@ impl<'a> Ui<'a> {
         self.raw_fill(x0, y0 + r, x0 + 1.0, y1 - r, color);
         self.raw_fill(x1 - 1.0, y0 + r, x1, y1 - r, color);
         self.corners(x0, y0, x1, y1, r, true, color);
+    }
+
+    /// The landscape picture, filling the `w x h` dp box like CSS `cover` anchored to
+    /// the bottom right. The caller paints the sky behind it (the picture's sky is clear).
+    pub fn hero(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        let atlas = self.atlas;
+        let Some(rect) = with_cache(atlas, |c| c.hero(atlas)) else {
+            return;
+        };
+        let (iw, ih) = (rect.w as f32, rect.h as f32);
+        let fit = (w / iw).max(h / ih);
+        // The part of the picture that shows, as a fraction of its width and height.
+        let (show_w, show_h) = ((w / (iw * fit)).min(1.0), (h / (ih * fit)).min(1.0));
+        let (u0, v0) = (
+            rect.u1 - (rect.u1 - rect.u0) * show_w,
+            rect.v1 - (rect.v1 - rect.v0) * show_h,
+        );
+        let (px0, py0) = (self.px_x(x), self.px_y(y));
+        let (px1, py1) = (self.px_x(x + w), self.px_y(y + h));
+        let s = self.scale;
+        self.batch.quad(
+            [
+                [px0 / s, py0 / s],
+                [px1 / s, py0 / s],
+                [px1 / s, py1 / s],
+                [px0 / s, py1 / s],
+            ],
+            [[u0, v0], [rect.u1, v0], [rect.u1, rect.v1], [u0, rect.v1]],
+            u32::MAX,
+        );
     }
 
     /// A launcher icon, `size` dp square with its top-left at (`x`, `y`).

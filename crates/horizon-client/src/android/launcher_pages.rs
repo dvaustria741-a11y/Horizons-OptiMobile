@@ -1,7 +1,7 @@
 use super::*;
 use horizon_client::{
     osk::Output,
-    ui_theme::{Icon, color},
+    ui_theme::{Icon, skin as color},
 };
 use winit::{
     event::{KeyEvent, Touch},
@@ -75,9 +75,12 @@ pub(super) fn button(
         y,
         w,
         h,
-        2.0,
+        (h / 2.0).min(12.0),
         if accent { color::ACCENT } else { color::RAISED },
     );
+    if !accent {
+        ui.border(x, y, w, h, (h / 2.0).min(12.0), tint(color::ACCENT, 50));
+    }
     let padding = (w * 0.12).clamp(4.0, 12.0);
     let base = if w < 80.0 { 13.0 } else { 16.0 };
     let font = if matches!(action, Action::Page(_)) {
@@ -105,6 +108,53 @@ pub(super) fn button(
 /// `c` with its alpha replaced (straight alpha, HUD colour encoding).
 fn tint(c: u32, a: u8) -> u32 {
     (c & 0x00ff_ffff) | (u32::from(a) << 24)
+}
+/// `0xRRGGBB` in the HUD's colour encoding, opaque.
+fn rgb(c: u32) -> u32 {
+    0xff00_0000 | (c & 0xff) << 16 | (c & 0xff00) | (c >> 16 & 0xff)
+}
+/// Linear blend of two `0xRRGGBB` colours, in the HUD encoding.
+fn mix(a: u32, b: u32, t: f32) -> u32 {
+    let ch = |shift: u32| {
+        let (x, y) = ((a >> shift & 0xff) as f32, (b >> shift & 0xff) as f32);
+        (x + (y - x) * t.clamp(0.0, 1.0)).round() as u32
+    };
+    rgb(ch(16) << 16 | ch(8) << 8 | ch(0))
+}
+/// The hero card's sky: night teal at the top, warm at the horizon.
+fn sky(t: f32) -> u32 {
+    const STOPS: [(f32, u32); 4] = [
+        (0.0, 0x0b2623),
+        (0.55, 0x15473a),
+        (0.82, 0x6b6a3a),
+        (1.0, 0xc98a3d),
+    ];
+    for pair in STOPS.windows(2) {
+        let ((t0, c0), (t1, c1)) = (pair[0], pair[1]);
+        if t <= t1 {
+            return mix(c0, c1, (t - t0) / (t1 - t0));
+        }
+    }
+    rgb(STOPS[3].1)
+}
+/// A point `d` dp along the outline of a stadium (a pill) whose top-left is (`x`, `y`),
+/// starting at the top-left of the top edge and running clockwise.
+fn orbit_point(d: f32, x: f32, y: f32, w: f32, h: f32) -> (f32, f32) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let r = h / 2.0;
+    let straight = (w - h).max(0.0);
+    let arc = PI * r;
+    if d < straight {
+        (x + r + d, y)
+    } else if d < straight + arc {
+        let a = -FRAC_PI_2 + (d - straight) / r;
+        (x + w - r + r * a.cos(), y + r + r * a.sin())
+    } else if d < 2.0 * straight + arc {
+        (x + w - r - (d - straight - arc), y + h)
+    } else {
+        let a = FRAC_PI_2 + (d - 2.0 * straight - arc) / r;
+        (x + r + r * a.cos(), y + r + r * a.sin())
+    }
 }
 fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
@@ -135,9 +185,12 @@ pub(super) fn pill(
         y,
         w,
         h,
-        (h / 2.0).min(14.0),
+        (h / 2.0).min(if h >= 56.0 { 30.0 } else { 14.0 }),
         if accent { color::ACCENT } else { color::RAISED },
     );
+    if !accent {
+        ui.border(x, y, w, h, (h / 2.0).min(14.0), tint(color::ACCENT, 70));
+    }
     let ink = if accent {
         color::ON_ACCENT
     } else {
@@ -364,6 +417,7 @@ impl Launcher {
         if wide {
             ui.rounded(0.0, 0.0, rail, full_h, 0.0, color::RAISED);
             ui.rounded(rail - 1.0, 0.0, 1.0, full_h, 0.0, color::BORDER);
+            ui.rounded(14.0, 14.0, 64.0, 64.0, 22.0, tint(color::ACCENT, 34));
             ui.rounded(18.0, 18.0, 56.0, 56.0, 18.0, color::ACCENT);
             let mark = ui.measure(Face::Medium, 28.0, "H");
             ui.text(
@@ -384,7 +438,7 @@ impl Launcher {
                 18.0,
                 tint(color::ACCENT, 48),
             );
-            ui.rounded(0.0, slide + 14.0, 4.0, item - 34.0, 2.0, color::ACCENT);
+            ui.border(8.0, slide, rail - 16.0, item - 6.0, 18.0, tint(color::ACCENT, 90));
             for (i, p) in Page::ALL.iter().enumerate() {
                 let y = 96.0 + i as f32 * item;
                 let on = *p == page;
@@ -472,14 +526,64 @@ impl Launcher {
             let progress = *self.install.lock().unwrap();
             let top = 160.0 + oy;
             self.animating |= installed || installing;
-            ui.rounded(
-                lx - 14.0,
-                top - 20.0,
-                cw + 28.0,
-                (h - top - 92.0).max(80.0),
-                22.0,
-                color::RAISED,
-            );
+            let card = [lx - 14.0, top - 20.0, cw + 28.0, (h - top - 92.0).max(80.0)];
+            let card_fill = rgb(0x0d1f18);
+            ui.rounded(card[0], card[1], card[2], card[3], 22.0, card_fill);
+            if !installing && !compact {
+                let (hx, right) = (card[0] + card[2] * 0.40, card[0] + card[2]);
+                let (hw, radius) = (right - hx, 22.0_f32);
+                // How far the card's rounded right corners cut in, `edge` dp from the top or bottom.
+                let inset = |edge: f32| {
+                    if edge < radius {
+                        radius - (radius * radius - (radius - edge) * (radius - edge)).sqrt()
+                    } else {
+                        0.0
+                    }
+                };
+                let bands = 36;
+                let band_h = card[3] / bands as f32;
+                for i in 0..bands {
+                    let y0 = card[1] + band_h * i as f32;
+                    let mid = band_h * (i as f32 + 0.5);
+                    let cut = inset(mid.min(card[3] - mid));
+                    ui.rounded(
+                        hx,
+                        y0,
+                        hw - cut,
+                        band_h + 0.6,
+                        0.0,
+                        sky((i as f32 + 0.5) / bands as f32),
+                    );
+                }
+                ui.hero(hx, card[1], hw, card[3]);
+                // Square picture corners poke out of the card's rounded corners: cover them.
+                for k in 0..22 {
+                    let cut = inset(k as f32 + 0.5);
+                    ui.rounded(right - cut, card[1] + k as f32, cut + 0.5, 1.0, 0.0, color::BG);
+                    ui.rounded(
+                        right - cut,
+                        card[1] + card[3] - 1.0 - k as f32,
+                        cut + 0.5,
+                        1.0,
+                        0.0,
+                        color::BG,
+                    );
+                }
+                // Melt the picture's left edge into the card.
+                let (strips, fade) = (28, hw * 0.38);
+                for i in 0..strips {
+                    let a = (1.0 - i as f32 / strips as f32).powf(1.6);
+                    ui.rounded(
+                        hx + fade * i as f32 / strips as f32,
+                        card[1],
+                        fade / strips as f32 + 0.6,
+                        card[3],
+                        0.0,
+                        tint(card_fill, (a * 255.0) as u8),
+                    );
+                }
+            }
+            ui.border(card[0], card[1], card[2], card[3], 22.0, tint(color::ACCENT, 80));
             ui.text(
                 Face::Medium,
                 32.0,
@@ -609,14 +713,16 @@ impl Launcher {
                 for (index, line) in rows.iter().enumerate() {
                     let y = top + 100.0 + index as f32 * 46.0;
                     let (num, text) = line.split_at(2);
-                    ui.rounded(lx, y - 3.0, 32.0, 32.0, 16.0, tint(color::ACCENT, 56));
+                    let text_w = ui.measure(Face::Regular, 17.0, text.trim_start());
+                    ui.rounded(lx + 30.0, y - 3.0, text_w + 48.0, 32.0, 16.0, color::RAISED);
+                    ui.rounded(lx, y - 3.0, 32.0, 32.0, 16.0, rgb(0x1f9d5c));
                     let nw = ui.measure(Face::Medium, 14.0, num);
                     ui.text(
                         Face::Medium,
                         14.0,
                         lx + 16.0 - nw / 2.0,
                         y + 1.0,
-                        color::ACCENT,
+                        color::TEXT,
                         num,
                     );
                     ui.text(
@@ -642,13 +748,22 @@ impl Launcher {
                 let play = [lx, h - 100.0, cw.min(420.0), 60.0];
                 if installed {
                     let pulse = 0.5 + 0.5 * (clock * 2.4).sin();
+                    let r = play[3] / 2.0;
                     ui.rounded(
-                        play[0] - 4.0,
-                        play[1] - 4.0,
-                        play[2] + 8.0,
-                        play[3] + 8.0,
-                        18.0,
-                        tint(color::ACCENT, (24.0 + 46.0 * pulse) as u8),
+                        play[0] - 7.0,
+                        play[1] - 7.0,
+                        play[2] + 14.0,
+                        play[3] + 14.0,
+                        r + 7.0,
+                        tint(color::ACCENT, (10.0 + 24.0 * pulse) as u8),
+                    );
+                    ui.rounded(
+                        play[0] - 3.0,
+                        play[1] - 3.0,
+                        play[2] + 6.0,
+                        play[3] + 6.0,
+                        r + 3.0,
+                        tint(color::ACCENT, (22.0 + 44.0 * pulse) as u8),
                     );
                 }
                 pill(
@@ -670,6 +785,30 @@ impl Launcher {
                     Action::Play,
                     true,
                 );
+                if installed {
+                    // A comet of light running round the button's edge.
+                    let [x, y, w, bh] = play;
+                    ui.rounded(x + 2.0, y + 2.0, w - 4.0, bh / 2.0 - 2.0, bh / 4.0, tint(0x00ff_ffff, 30));
+                    ui.border(x, y, w, bh, bh / 2.0, tint(rgb(0xd6ffe6), 70));
+                    let perimeter = 2.0 * (w - bh) + std::f32::consts::PI * bh;
+                    let head = (clock * 0.3).fract() * perimeter;
+                    let tail = (perimeter * 0.3).min(260.0);
+                    let dots = 40;
+                    for i in 0..dots {
+                        let f = i as f32 / dots as f32;
+                        let (px, py) =
+                            orbit_point((head - f * tail).rem_euclid(perimeter), x, y, w, bh);
+                        let size = 6.0 - 3.0 * f;
+                        ui.rounded(
+                            px - size / 2.0,
+                            py - size / 2.0,
+                            size,
+                            size,
+                            size / 2.0,
+                            tint(rgb(0xd6ffe6), (230.0 * (1.0 - f).powf(1.8)) as u8),
+                        );
+                    }
+                }
             }
         } else if page.is_catalog() {
             ui.text(
