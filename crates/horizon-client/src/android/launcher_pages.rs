@@ -1611,7 +1611,6 @@ impl Launcher {
                 self.catalog.config.render_scale = scale;
                 self.catalog.config.save(&self.home)?;
                 self.chooser = None;
-                crate::display::set_scale(scale);
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),

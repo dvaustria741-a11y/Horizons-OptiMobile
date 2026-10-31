@@ -189,7 +189,9 @@ impl Launcher {
     fn open(&mut self, events: &ActiveEventLoop) -> Result<()> {
         crate::platform::set_orientation(self.catalog.config.orientation);
         self.configure_screen();
-        crate::display::set_scale(self.catalog.config.render_scale);
+        // The launcher always draws at full sharpness; the client resolution
+        // setting only applies once the game is launched.
+        crate::display::set_scale(crate::display::RenderScale::default());
         horizon_client::android_runtime::configure_gpu(false);
         if let Some(renderer) = &mut self.renderer {
             if let Some(size) = crate::display::prepare(self.window.as_ref().unwrap())? {
@@ -330,6 +332,8 @@ impl Launcher {
             self.window = None;
             self.gui = None;
             horizon_client::ui_theme::reset_atlas();
+            // Client resolution applies to the game window only.
+            crate::display::set_scale(self.catalog.config.render_scale);
             self.game = Some(game);
             self.game.as_mut().unwrap().resumed(events);
         } else {

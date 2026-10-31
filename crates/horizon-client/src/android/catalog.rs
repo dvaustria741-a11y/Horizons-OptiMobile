@@ -683,8 +683,8 @@ impl Catalog {
                 if self.editing == Some("render_scale") {
                     match crate::display::RenderScale::parse(&self.render_scale_text) {
                         Ok(scale) => {
+                            // Applied when the game launches, not to the launcher.
                             self.config.render_scale = scale;
-                            crate::display::set_scale(scale);
                         }
                         Err(error) => {
                             self.status = error.into();
