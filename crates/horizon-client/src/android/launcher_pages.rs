@@ -977,7 +977,7 @@ impl Launcher {
                 let y = top + i as f32 * 78.0 - self.catalog.scroll;
                 let download = self.catalog.download_label(p);
                 if download.is_none()
-                    && !crate::catalog::source_only_mod(p)
+                    && !crate::catalog::native_only_mod(p)
                     && !(p.kind == crate::browser::Kind::Mod
                         && p.source == crate::browser::SourceId::Modrinth)
                 {
@@ -1009,7 +1009,7 @@ impl Launcher {
                         color::MUTED,
                         "Java mod",
                     );
-                } else if crate::catalog::source_only_mod(p) {
+                } else if crate::catalog::native_only_mod(p) {
                     ui.text(
                         Face::Regular,
                         14.0,

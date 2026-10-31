@@ -21,6 +21,8 @@ mod browser;
 mod android_dns;
 #[path = "android/catalog.rs"]
 mod catalog;
+#[path = "android/hmod_builds.rs"]
+mod hmod_builds;
 #[path = "android/device_preferences.rs"]
 mod device_preferences;
 #[path = "android/device_runtime.rs"]

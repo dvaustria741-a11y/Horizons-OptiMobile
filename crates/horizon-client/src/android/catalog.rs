@@ -10,6 +10,18 @@ pub fn source_only_mod(project: &Project) -> bool {
         && project.loaders.iter().any(|loader| loader == "hnmod")
 }
 
+/// A registry mod that turned native but still publishes a sandboxed `.hmod` build Android runs.
+pub fn sandboxed_build(project: &Project) -> Option<&'static crate::hmod_builds::Build> {
+    source_only_mod(project)
+        .then(|| crate::hmod_builds::build_for(&project.id))
+        .flatten()
+}
+
+/// A source-only mod with no `.hmod` build: it needs a separately compiled client.
+pub fn native_only_mod(project: &Project) -> bool {
+    source_only_mod(project) && sandboxed_build(project).is_none()
+}
+
 /// Temporary dev registration published as Minecraft Nintendo Switch by PrismarineJS.
 /// Account tokens and client secrets are never bundled.
 pub const MICROSOFT_CLIENT_ID: &str = "00000000441cc96b";
@@ -435,9 +447,9 @@ impl Catalog {
                 items.len()
             )
         } else if self.page == Page::Mods {
-            let native = items.iter().filter(|p| source_only_mod(p)).count();
+            let native = items.iter().filter(|p| native_only_mod(p)).count();
             format!(
-                "{} .hmod / {} source-only .hnmod (not supported yet)",
+                "{} installable .hmod / {} source-only .hnmod (not supported yet)",
                 items.len() - native,
                 native
             )
@@ -506,7 +518,39 @@ impl Catalog {
             return;
         };
         if source_only_mod(&project) {
-            self.status = "This .hnmod needs a separately compiled client. Android support is planned; sandboxed .hmod mods can be installed now.".into();
+            let Some(build) = sandboxed_build(&project) else {
+                self.status = "This .hnmod needs a separately compiled client. Android support is planned; sandboxed .hmod mods can be installed now.".into();
+                return;
+            };
+            if !cfg!(target_pointer_width = "64") {
+                self.status = "Sandboxed code mods require a 64-bit APK".into();
+                return;
+            }
+            if self.busy() || self.download_label(&project).is_some() {
+                return;
+            }
+            let game = self.config.game_home(home);
+            self.downloading = Some((project.source, project.id.clone()));
+            self.failed = None;
+            *self.progress.lock().unwrap_or_else(|e| e.into_inner()) = 0.0;
+            let progress = self.progress.clone();
+            self.job(
+                &format!("Downloading {} {} (.hmod)...", project.title, build.version),
+                move || {
+                    let name = crate::hmod_builds::install(&game, build, &|p| {
+                        if p.is_finite() {
+                            *progress.lock().unwrap_or_else(|e| e.into_inner()) = p.clamp(0.0, 1.0);
+                        }
+                    })?;
+                    Ok(Reply::Done(
+                        format!(
+                            "Installed {name} {} and turned it on. Open Play to load it; see what it may do in game Options > Mods.",
+                            build.version
+                        ),
+                        horizon_client::content_files::Kind::Mods,
+                    ))
+                },
+            );
             return;
         }
         if self.busy() || self.download_label(&project).is_some() {
